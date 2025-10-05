@@ -6,7 +6,6 @@ from .prompt_caching import AnthropicPromptCachingMiddleware
 from .summarization import SummarizationMiddleware
 from .types import (
     AgentMiddleware,
-    AgentState,
     ModelRequest,
     after_model,
     before_model,

@@ -5,7 +5,7 @@ def __getattr__(name):
         from src.agents.agents.react_agent import create_agent
         return create_agent
     elif name == "AgentState":
-        from src.agents.agents.react_agent import AgentState
+        from src.agents.agents.middleware.types import AgentState
         return AgentState
     else:
         raise AttributeError(f"module {__name__} has no attribute {name}")

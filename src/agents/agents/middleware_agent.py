@@ -183,9 +183,7 @@ def create_agent(  # noqa: PLR0915
     middleware: Sequence[AgentMiddleware[AgentState[ResponseT], ContextT]] = (),
     response_format: ResponseFormat[ResponseT] | type[ResponseT] | None = None,
     context_schema: type[ContextT] | None = None,
-) -> StateGraph[
-    AgentState[ResponseT], ContextT, PublicAgentState[ResponseT], PublicAgentState[ResponseT]
-]:
+) -> "StateGraph[AgentState[ResponseT], ContextT, PublicAgentState[ResponseT], PublicAgentState[ResponseT]]":
     """Create a middleware agent graph."""
     # init chat model
     if isinstance(model, str):
@@ -277,9 +275,7 @@ def create_agent(  # noqa: PLR0915
     output_schema = _resolve_schema(state_schemas, "OutputSchema", "output")
 
     # create graph, add nodes
-    graph: StateGraph[
-        AgentState[ResponseT], ContextT, PublicAgentState[ResponseT], PublicAgentState[ResponseT]
-    ] = StateGraph(
+    graph: "StateGraph[AgentState, ContextT, PublicAgentState, PublicAgentState]" = StateGraph(
         state_schema=state_schema,
         input_schema=input_schema,
         output_schema=output_schema,
@@ -733,7 +729,7 @@ def _make_tools_to_model_edge(
 
 
 def _add_middleware_edge(
-    graph: StateGraph[AgentState, ContextT, PublicAgentState, PublicAgentState],
+    graph: StateGraph,
     name: str,
     default_destination: str,
     model_destination: str,

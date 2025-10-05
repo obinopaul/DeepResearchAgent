@@ -13,7 +13,8 @@ from langchain_mcp_adapters.client import MultiServerMCPClient
 from langgraph.types import Command, interrupt
 from functools import partial
 
-from src.agents import create_agent
+from src.agents import create_agent, deep_agent
+# from src.agents.deep_agents import DeepAgentState, create_deep_agent, async_create_deep_agent
 from src.config.agents import AGENT_LLM_MAP
 from src.config.configuration import Configuration
 from src.llms.llm import get_llm_by_type, get_llm_token_limit_by_type
@@ -44,6 +45,7 @@ def handoff_to_planner(
     # This tool is not returning anything: we're just using it
     # as a way for LLM to signal that it needs to hand off to planner agent
     return
+
 
 
 def background_investigation_node(state: State, config: RunnableConfig):
@@ -497,6 +499,98 @@ async def _setup_and_execute_agent_step(
         return await _execute_agent_step(state, agent, agent_type)
 
 
+
+async def _setup_and_execute_deep_agent_step(
+    state: State,
+    config: RunnableConfig,
+    agent_type: str,
+    default_tools: list,
+) -> Command[Literal["research_team"]]:
+    """Helper function to set up an agent with appropriate tools and execute a step.
+
+    This function handles the common logic for both researcher_node and coder_node:
+    1. Configures MCP servers and tools based on agent type
+    2. Creates an agent with the appropriate tools or uses the default agent
+    3. Executes the agent on the current step
+
+    Args:
+        state: The current state
+        config: The runnable config
+        agent_type: The type of agent ("researcher" or "coder")
+        default_tools: The default tools to add to the agent
+
+    Returns:
+        Command to update state and go to research_team
+    """
+    configurable = Configuration.from_runnable_config(config)
+    mcp_servers = {}
+    enabled_tools = {}
+
+    # Extract MCP server configuration for this agent type
+    if configurable.mcp_settings:
+        for server_name, server_config in configurable.mcp_settings["servers"].items():
+            if (
+                server_config["enabled_tools"]
+                and agent_type in server_config["add_to_agents"]
+            ):
+                mcp_servers[server_name] = {
+                    k: v
+                    for k, v in server_config.items()
+                    if k in ("transport", "command", "args", "url", "env", "headers")
+                }
+                for tool_name in server_config["enabled_tools"]:
+                    enabled_tools[tool_name] = server_name
+
+    # Create and execute agent with MCP tools if available
+    if mcp_servers:
+        client = MultiServerMCPClient(mcp_servers)
+        loaded_tools = default_tools[:]
+        all_tools = await client.get_tools()
+        for tool in all_tools:
+            if tool.name in enabled_tools:
+                tool.description = (
+                    f"Powered by '{enabled_tools[tool.name]}'.\n{tool.description}"
+                )
+                loaded_tools.append(tool)
+
+        llm_token_limit = get_llm_token_limit_by_type(AGENT_LLM_MAP[agent_type])
+        pre_model_hook = partial(ContextManager(llm_token_limit, 3).compress_messages)
+        # agent = create_agent(
+        #     agent_type, agent_type, loaded_tools, agent_type, pre_model_hook
+        # ) 
+        agent = deep_agent(
+            agent_name=agent_type,
+            agent_type=agent_type,
+            tools = loaded_tools,
+            prompt_template = apply_prompt_template("sub_critique_prompt", state),
+            sub_research_prompt = apply_prompt_template("sub_research_prompt", state),
+            sub_critique_prompt = apply_prompt_template("sub_critique_prompt", state),
+            pre_model_hook = pre_model_hook
+        )
+
+
+        return await _execute_agent_step(state, agent, agent_type)
+    else:
+        # Use default tools if no MCP servers are configured
+        llm_token_limit = get_llm_token_limit_by_type(AGENT_LLM_MAP[agent_type])
+        pre_model_hook = partial(ContextManager(llm_token_limit, 3).compress_messages)
+        # agent = create_agent(
+        #     agent_type, agent_type, default_tools, agent_type, pre_model_hook
+        # )
+        
+        agent = deep_agent(
+            agent_name=agent_type,
+            agent_type=agent_type,
+            tools = loaded_tools,
+            prompt_template = apply_prompt_template("sub_critique_prompt", state),
+            sub_research_prompt = apply_prompt_template("sub_research_prompt", state),
+            sub_critique_prompt = apply_prompt_template("sub_critique_prompt", state),
+            pre_model_hook = pre_model_hook
+        )
+        
+        return await _execute_agent_step(state, agent, agent_type)
+    
+    
 async def researcher_node(
     state: State, config: RunnableConfig
 ) -> Command[Literal["research_team"]]:

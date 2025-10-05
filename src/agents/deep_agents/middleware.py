@@ -1,7 +1,8 @@
 """DeepAgents implemented as Middleware"""
 
 from src.agents.agents import create_agent
-from src.agents.agents.middleware import AgentMiddleware, AgentState, ModelRequest, SummarizationMiddleware
+from src.agents.agents.middleware import AgentMiddleware, ModelRequest, SummarizationMiddleware
+from src.agents.agents.middleware.types import AgentState
 from src.agents.agents.middleware.prompt_caching import AnthropicPromptCachingMiddleware
 from langchain_core.tools import BaseTool, tool, InjectedToolCallId
 from langchain_core.messages import ToolMessage

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from inspect import iscoroutinefunction
 from typing import (
@@ -12,21 +12,25 @@ from typing import (
     Generic,
     Literal,
     Protocol,
+    TypeVar,
     cast,
     overload,
 )
 
 from langchain_core.runnables import run_in_executor
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable
 
 # needed as top level import for pydantic schema generation on AgentState
-from langchain_core.messages import AnyMessage  # noqa: TC002
+from langchain_core.messages import AnyMessage, BaseMessage  # noqa: TC002
 from langgraph.channels.ephemeral_value import EphemeralValue
 from langgraph.channels.untracked_value import UntrackedValue
 from langgraph.graph.message import add_messages
+from langgraph.managed import RemainingSteps
 from src.agents.agents.utils.runtime import Runtime
+
 # from langgraph.typing import ContextT
 from src.agents.agents.utils.typing import ContextT
 from typing_extensions import NotRequired, Required, TypedDict, TypeVar
@@ -54,6 +58,7 @@ JumpTo = Literal["tools", "model", "end"]
 """Destination to jump to when a middleware node returns."""
 
 ResponseT = TypeVar("ResponseT")
+StructuredResponseT = TypeVar("StructuredResponseT", default=None)
 
 
 @dataclass
@@ -90,14 +95,32 @@ PrivateStateAttr = OmitFromSchema(input=True, output=True)
 """Annotation used to mark state attributes as purely internal for a given middleware."""
 
 
-class AgentState(TypedDict, Generic[ResponseT]):
-    """State schema for the agent."""
+class AgentState(TypedDict):
+    """The state of the agent."""
 
-    messages: Required[Annotated[list[AnyMessage], add_messages]]
-    jump_to: NotRequired[Annotated[JumpTo | None, EphemeralValue, PrivateStateAttr]]
-    structured_response: NotRequired[ResponseT]
-    thread_model_call_count: NotRequired[Annotated[int, PrivateStateAttr]]
-    run_model_call_count: NotRequired[Annotated[int, UntrackedValue, PrivateStateAttr]]
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+
+    remaining_steps: NotRequired[RemainingSteps]
+
+
+class AgentStatePydantic(BaseModel):
+    """The state of the agent."""
+
+    messages: Annotated[Sequence[BaseMessage], add_messages]
+
+    remaining_steps: RemainingSteps = 25
+
+
+class AgentStateWithStructuredResponse(AgentState, Generic[StructuredResponseT]):
+    """The state of the agent with a structured response."""
+
+    structured_response: StructuredResponseT
+
+
+class AgentStateWithStructuredResponsePydantic(AgentStatePydantic, Generic[StructuredResponseT]):
+    """The state of the agent with a structured response."""
+
+    structured_response: StructuredResponseT
 
 
 class PublicAgentState(TypedDict, Generic[ResponseT]):

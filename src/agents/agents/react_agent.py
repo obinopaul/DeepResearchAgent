@@ -70,39 +70,14 @@ if TYPE_CHECKING:
     )
     from src.agents.agents.middleware.types import AgentMiddleware
 
+from src.agents.agents.middleware.types import (
+    AgentState,
+    AgentStatePydantic,
+    AgentStateWithStructuredResponse,
+    AgentStateWithStructuredResponsePydantic,
+)
+
 StructuredResponseT = TypeVar("StructuredResponseT", default=None)
-
-STRUCTURED_OUTPUT_ERROR_TEMPLATE = "Error: {error}\n Please fix your mistakes."
-
-MISSING = object()
-"""Unset sentinel value."""
-
-class AgentState(TypedDict):
-    """The state of the agent."""
-
-    messages: Annotated[Sequence[BaseMessage], add_messages]
-
-    remaining_steps: NotRequired[RemainingSteps]
-
-
-class AgentStatePydantic(BaseModel):
-    """The state of the agent."""
-
-    messages: Annotated[Sequence[BaseMessage], add_messages]
-
-    remaining_steps: RemainingSteps = 25
-
-
-class AgentStateWithStructuredResponse(AgentState, Generic[StructuredResponseT]):
-    """The state of the agent with a structured response."""
-
-    structured_response: StructuredResponseT
-
-
-class AgentStateWithStructuredResponsePydantic(AgentStatePydantic, Generic[StructuredResponseT]):
-    """The state of the agent with a structured response."""
-
-    structured_response: StructuredResponseT
 
 
 PROMPT_RUNNABLE_NAME = "Prompt"
@@ -820,7 +795,7 @@ class _AgentBuilder(Generic[StateT, ContextT, StructuredResponseT]):
         paths.append(END)
         return paths
 
-    def build(self) -> StateGraph[StateT, ContextT]:
+    def build(self) -> "StateGraph[StateT, ContextT]":
         """Build the agent workflow graph (uncompiled)."""
         workflow = StateGraph(
             state_schema=self._final_state_schema,
