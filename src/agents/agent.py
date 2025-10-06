@@ -54,12 +54,12 @@ def deep_agent(
 
     """Factory function to create agents with consistent configuration."""
     return create_deep_agent(
-        name=agent_name,
+        # name=agent_name,
         model=get_llm_by_type(AGENT_LLM_MAP[agent_type]),
         tools=tools,
         subagents=[critique_sub_agent, research_sub_agent],
         # instructions =lambda state: apply_prompt_template(prompt_template, state),
         instructions=prompt_template,
-        pre_model_hook=pre_model_hook,
+        # pre_model_hook=pre_model_hook,
     ).with_config({"recursion_limit": 1000})
     

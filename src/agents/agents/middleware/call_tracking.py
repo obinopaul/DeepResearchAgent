@@ -121,7 +121,8 @@ class ModelCallLimitMiddleware(AgentMiddleware):
             ValueError: If both limits are None or if exit_behavior is invalid.
         """
         super().__init__()
-
+        self.name = "ModelCallLimitMiddleware"
+        
         if thread_limit is None and run_limit is None:
             msg = "At least one limit must be specified (thread_limit or run_limit)"
             raise ValueError(msg)

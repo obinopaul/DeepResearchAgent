@@ -36,6 +36,8 @@ class AnthropicPromptCachingMiddleware(AgentMiddleware):
                 "warn" will warn the user and continue without caching.
                 "raise" will raise an error and stop the agent.
         """
+        super().__init__()
+        self.name = "AnthropicPromptCachingMiddleware"
         self.type = type
         self.ttl = ttl
         self.min_messages_to_cache = min_messages_to_cache

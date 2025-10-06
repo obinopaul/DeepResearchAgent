@@ -166,6 +166,7 @@ class PlanningMiddleware(AgentMiddleware):
             tool_description: Custom description for the write_todos tool.
         """
         super().__init__()
+        self.name = "PlanningMiddleware"
         self.system_prompt = system_prompt
         self.tool_description = tool_description
 

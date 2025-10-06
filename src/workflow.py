@@ -5,6 +5,7 @@ import logging
 
 from src.config.configuration import get_recursion_limit
 from src.graph import build_graph
+from langfuse.langchain import CallbackHandler 
 
 # Configure logging
 logging.basicConfig(
@@ -74,6 +75,7 @@ async def run_agent_workflow_async(
             },
         },
         "recursion_limit": get_recursion_limit(default=100),
+        "callbacks": [CallbackHandler()],
     }
     last_message_cnt = 0
     async for s in graph.astream(

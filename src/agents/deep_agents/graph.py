@@ -96,7 +96,8 @@ def create_deep_agent(
         subagents=subagents,
         context_schema=context_schema,
         checkpointer=checkpointer,
-        tool_configs=tool_configs,
+        # tool_configs=tool_configs,
+        tool_configs=None,  # Disable tool interrupt for sync agent for now.
         is_async=False,
     )
 
@@ -138,6 +139,7 @@ def async_create_deep_agent(
         subagents=subagents,
         context_schema=context_schema,
         checkpointer=checkpointer,
-        tool_configs=tool_configs,
+        # tool_configs=tool_configs,
+        tool_configs=None,  # Disable tool interrupt for sync agent for now.
         is_async=True,
     )

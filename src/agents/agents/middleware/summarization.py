@@ -88,7 +88,8 @@ class SummarizationMiddleware(AgentMiddleware):
             summary_prefix: Prefix added to system message when including summary.
         """
         super().__init__()
-
+        self.name = "SummarizationMiddleware"
+        
         if isinstance(model, str):
             model = init_chat_model(model)
 

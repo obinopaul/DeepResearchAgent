@@ -597,18 +597,37 @@ async def researcher_node(
     """Researcher node that do research"""
     logger.info("Researcher node is researching.")
     configurable = Configuration.from_runnable_config(config)
+
+    if not hasattr(crawl_tool, "name"):
+        # Assign a readable fallback name
+        setattr(crawl_tool, "name", getattr(crawl_tool, "__name__", f"crawl_tool"))
+
     tools = [get_web_search_tool(configurable.max_search_results), crawl_tool]
     retriever_tool = get_retriever_tool(state.get("resources", []))
     if retriever_tool:
         tools.insert(0, retriever_tool)
-    logger.info(f"Researcher tools: {tools}")
-    return await _setup_and_execute_agent_step(
+        
+    # Ensure every tool has a `name` attribute
+    for i, tool in enumerate(tools):
+        if not hasattr(tool, "name"):
+            # Assign a readable fallback name
+            setattr(tool, "name", getattr(tool, "__name__", f"unnamed_tool_{i}"))
+
+    logger.info(f"Researcher tools: {[tool.name for tool in tools]}")
+    
+    # return await _setup_and_execute_agent_step(
+    #     state,
+    #     config,
+    #     "researcher",
+    #     tools,
+    # )
+    
+    return await _setup_and_execute_deep_agent_step(
         state,
         config,
         "researcher",
         tools,
     )
-
 
 async def coder_node(
     state: State, config: RunnableConfig

@@ -7,7 +7,7 @@ The first thing you should do is to write the original user question to `questio
 
 Use the research-agent to conduct deep research. It will respond to your questions/topics with a detailed answer.
 
-When you think you enough information to write a final report, write it to `final_report.md`
+When you think you have enough information to write a final report, write it to `final_report.md`
 
 You can call the critique-agent to get a critique of the final report. After that (if needed) you can do more research and edit the `final_report.md`
 You can do this however many times you want until are you satisfied with the result.

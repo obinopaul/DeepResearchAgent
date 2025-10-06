@@ -72,7 +72,7 @@ from langchain_core.tools.base import (
     TOOL_MESSAGE_BLOCK_TYPES,
     get_all_basemodel_annotations,
 )
-from langchain_core.runnables import RunnableLambda
+from src.agents.agents._internal._runnable import RunnableCallable
 from langgraph.errors import GraphBubbleUp
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command, Send
@@ -277,7 +277,7 @@ def _infer_handled_types(handler: Callable[..., str]) -> tuple[type[Exception], 
     return (Exception,)
 
 
-class ToolNode(RunnableLambda):
+class ToolNode(RunnableCallable):
     """A node for executing tools in LangGraph workflows.
 
     Handles tool execution patterns including function calls, state injection,
@@ -404,6 +404,7 @@ class ToolNode(RunnableLambda):
             handle_tool_errors: Error handling configuration.
             messages_key: State key containing messages.
         """
+        # super().__init__(self._func, self._afunc, name=name, tags=tags, trace=False)
         super().__init__(self._func, self._afunc, name=name, tags=tags, trace=False)
         self._tools_by_name: dict[str, BaseTool] = {}
         self._tool_to_state_args: dict[str, dict[str, str | None]] = {}

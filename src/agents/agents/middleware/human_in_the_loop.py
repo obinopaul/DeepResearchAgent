@@ -173,6 +173,7 @@ class HumanInTheLoopMiddleware(AgentMiddleware):
                 Not used if a tool has a ``description`` in its ToolConfig.
         """
         super().__init__()
+        self.name = "HumanInTheLoopMiddleware"
         resolved_tool_configs: dict[str, ToolConfig] = {}
         for tool_name, tool_config in interrupt_on.items():
             if isinstance(tool_config, bool):

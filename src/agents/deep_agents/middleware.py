@@ -2,6 +2,7 @@
 
 from src.agents.agents import create_agent
 from src.agents.agents.middleware import AgentMiddleware, ModelRequest, SummarizationMiddleware
+from src.agents.agents.utils.runtime import Runtime
 from src.agents.agents.middleware.types import AgentState
 from src.agents.agents.middleware.prompt_caching import AnthropicPromptCachingMiddleware
 from langchain_core.tools import BaseTool, tool, InjectedToolCallId
@@ -23,7 +24,11 @@ class PlanningMiddleware(AgentMiddleware):
     state_schema = PlanningState
     tools = [write_todos]
 
-    def modify_model_request(self, request: ModelRequest, agent_state: PlanningState) -> ModelRequest:
+    def __init__(self) -> None:
+        super().__init__()
+        self.name = "PlanningMiddleware"
+
+    def modify_model_request(self, request: ModelRequest, agent_state: PlanningState, runtime: Runtime) -> ModelRequest:
         request.system_prompt = request.system_prompt + "\n\n" + WRITE_TODOS_SYSTEM_PROMPT
         return request
 
@@ -35,7 +40,11 @@ class FilesystemMiddleware(AgentMiddleware):
     state_schema = FilesystemState
     tools = [ls, read_file, write_file, edit_file]
 
-    def modify_model_request(self, request: ModelRequest, agent_state: FilesystemState) -> ModelRequest:
+    def __init__(self) -> None:
+        super().__init__()
+        self.name = "FilesystemMiddleware"
+        
+    def modify_model_request(self, request: ModelRequest, agent_state: FilesystemState, runtime: Runtime) -> ModelRequest:
         request.system_prompt = request.system_prompt + "\n\n" + FILESYSTEM_SYSTEM_PROMPT
         return request
 
@@ -52,6 +61,7 @@ class SubAgentMiddleware(AgentMiddleware):
         is_async=False,
     ) -> None:
         super().__init__()
+        self.name = "SubAgentMiddleware"
         task_tool = create_task_tool(
             default_subagent_tools=default_subagent_tools,
             subagents=subagents,
@@ -60,7 +70,7 @@ class SubAgentMiddleware(AgentMiddleware):
         )
         self.tools = [task_tool]
 
-    def modify_model_request(self, request: ModelRequest, agent_state: AgentState) -> ModelRequest:
+    def modify_model_request(self, request: ModelRequest, agent_state: AgentState, runtime: Runtime) -> ModelRequest:
         request.system_prompt = request.system_prompt + "\n\n" + TASK_SYSTEM_PROMPT
         return request
 
