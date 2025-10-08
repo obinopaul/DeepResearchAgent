@@ -10,6 +10,7 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from src.prompts.template import get_prompt_template
 from langgraph.types import Command, interrupt
 from functools import partial
 
@@ -555,6 +556,7 @@ async def _setup_and_execute_deep_agent_step(
 
         llm_token_limit = get_llm_token_limit_by_type(AGENT_LLM_MAP[agent_type])
         pre_model_hook = partial(ContextManager(llm_token_limit, 3).compress_messages)
+        
         # agent = create_agent(
         #     agent_type, agent_type, loaded_tools, agent_type, pre_model_hook
         # ) 
@@ -562,9 +564,9 @@ async def _setup_and_execute_deep_agent_step(
             agent_name=agent_type,
             agent_type=agent_type,
             tools = loaded_tools,
-            prompt_template = apply_prompt_template("sub_critique_prompt", state),
-            sub_research_prompt = apply_prompt_template("sub_research_prompt", state),
-            sub_critique_prompt = apply_prompt_template("sub_critique_prompt", state),
+            prompt_template = get_prompt_template("sub_critique_prompt"),
+            sub_research_prompt = get_prompt_template("sub_research_prompt"),
+            sub_critique_prompt = get_prompt_template("sub_critique_prompt"),
             pre_model_hook = pre_model_hook
         )
 
@@ -574,6 +576,7 @@ async def _setup_and_execute_deep_agent_step(
         # Use default tools if no MCP servers are configured
         llm_token_limit = get_llm_token_limit_by_type(AGENT_LLM_MAP[agent_type])
         pre_model_hook = partial(ContextManager(llm_token_limit, 3).compress_messages)
+        loaded_tools = default_tools[:] # This is the line to add
         # agent = create_agent(
         #     agent_type, agent_type, default_tools, agent_type, pre_model_hook
         # )
@@ -582,9 +585,9 @@ async def _setup_and_execute_deep_agent_step(
             agent_name=agent_type,
             agent_type=agent_type,
             tools = loaded_tools,
-            prompt_template = apply_prompt_template("sub_critique_prompt", state),
-            sub_research_prompt = apply_prompt_template("sub_research_prompt", state),
-            sub_critique_prompt = apply_prompt_template("sub_critique_prompt", state),
+            prompt_template = get_prompt_template("sub_critique_prompt"),
+            sub_research_prompt = get_prompt_template("sub_research_prompt"),
+            sub_critique_prompt = get_prompt_template("sub_critique_prompt"),
             pre_model_hook = pre_model_hook
         )
         
