@@ -5,11 +5,12 @@ import json
 import logging
 import os
 from typing import Annotated, Literal
-
+from pydantic import ValidationError
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import tool
 from langchain_mcp_adapters.client import MultiServerMCPClient
+from trustcall import create_extractor
 from src.prompts.template import get_prompt_template
 from langgraph.types import Command, interrupt
 from functools import partial
@@ -85,15 +86,47 @@ def background_investigation_node(state: State, config: RunnableConfig):
     }
 
 
+def build_plan_with_trustcall(messages: list[dict], config: RunnableConfig, existing: Plan | None = None) -> Plan:
+    configurable = Configuration.from_runnable_config(config)
+    logger.info("Building plan with TrustCall")
+    
+    if configurable.enable_deep_thinking:
+        llm = get_llm_by_type("reasoning")
+    elif AGENT_LLM_MAP["planner"] == "basic":
+        llm = get_llm_by_type("basic")
+    else:
+        llm = get_llm_by_type(AGENT_LLM_MAP["planner"])
+    extractor = create_extractor(
+        llm,
+        tools=[Plan],         # TrustCall will validate against Plan
+        tool_choice="Plan",   # force Plan tool
+        # enable_inserts not needed here (single doc)
+    )
+
+    kwargs = {"messages": messages}
+    if existing is not None:
+        kwargs["existing"] = {"Plan": existing.model_dump()}  # patch against current state
+
+    result = extractor.invoke(kwargs)
+    plan_obj = result["responses"][0]  # This is a validated Pydantic Plan instance
+    return plan_obj
+
+
+
 def planner_node(
     state: State, config: RunnableConfig
 ) -> Command[Literal["human_feedback", "reporter"]]:
     """Planner node that generate the full plan."""
     logger.info("Planner generating full plan")
     configurable = Configuration.from_runnable_config(config)
+    
+    # 1. Iteration Check: Prevent infinite loops by enforcing a maximum number of planning attempts.
     plan_iterations = state["plan_iterations"] if state.get("plan_iterations", 0) else 0
-    messages = apply_prompt_template("planner", state, configurable)
+    if plan_iterations >= configurable.max_plan_iterations:
+        return Command(goto="reporter")
 
+    # 2. Message Preparation: Assemble the prompt with all necessary context.
+    messages = apply_prompt_template("planner", state, configurable)
     if state.get("enable_background_investigation") and state.get(
         "background_investigation_results"
     ):
@@ -108,56 +141,130 @@ def planner_node(
             }
         ]
 
-    if configurable.enable_deep_thinking:
-        llm = get_llm_by_type("reasoning")
-    elif AGENT_LLM_MAP["planner"] == "basic":
-        llm = get_llm_by_type("basic").with_structured_output(
-            Plan,
-            method="json_mode",
-        )
-    else:
-        llm = get_llm_by_type(AGENT_LLM_MAP["planner"])
 
-    # if the plan iterations is greater than the max plan iterations, return the reporter node
-    if plan_iterations >= configurable.max_plan_iterations:
-        return Command(goto="reporter")
+    # 3. Handle Existing Plan: Safely validate and prepare the current plan for refinement.
+    existing_plan = state.get("current_plan")
+    if isinstance(existing_plan, dict):
+        try:
+            # Attempt to load a dictionary state into a Pydantic model
+            existing_plan = Plan.model_validate(existing_plan)
+        except ValidationError as e:
+            logger.warning(f"Could not validate existing plan from dict: {e}. Proceeding without it.")
+            existing_plan = None
+    elif not isinstance(existing_plan, Plan):
+        # Ensure we are only working with a valid Plan object or None
+        existing_plan = None
 
-    full_response = ""
-    if AGENT_LLM_MAP["planner"] == "basic" and not configurable.enable_deep_thinking:
-        response = llm.invoke(messages)
-        full_response = response.model_dump_json(indent=4, exclude_none=True)
-    else:
-        response = llm.stream(messages)
-        for chunk in response:
-            full_response += chunk.content
-    logger.debug(f"Current state messages: {state['messages']}")
-    logger.info(f"Planner response: {full_response}")
-
+    # 4. Core Logic & Error Handling: Execute the planning call within a try-except block.
     try:
-        curr_plan = json.loads(repair_json_output(full_response))
-    except json.JSONDecodeError:
-        logger.warning("Planner response is not a valid JSON")
-        if plan_iterations > 0:
-            return Command(goto="reporter")
-        else:
-            return Command(goto="__end__")
-    if isinstance(curr_plan, dict) and curr_plan.get("has_enough_context"):
-        logger.info("Planner response has enough context.")
-        new_plan = Plan.model_validate(curr_plan)
-        return Command(
-            update={
-                "messages": [AIMessage(content=full_response, name="planner")],
-                "current_plan": new_plan,
-            },
-            goto="reporter",
-        )
+        new_plan: Plan = build_plan_with_trustcall(messages, config, existing=existing_plan)
+        logger.info("Successfully generated and validated a new plan.")
+        # Serialize the validated plan for logging and state update
+        full_response_content = new_plan.model_dump_json(indent=2)
+        logger.debug(f"Planner response: {full_response_content}")
+
+    except Exception as e:
+        logger.exception(f"A critical error occurred during plan generation: {e}")
+        # If this is the first attempt, end the process. Otherwise, route to the
+        # reporter to present the last successful state before the error.
+        goto = "reporter" if plan_iterations > 0 else "__end__"
+        return Command(goto=goto)
+    
+    # 5. Context-Aware Routing: Decide the next step based on the LLM's assessment.
+    # This check is sourced directly from your original implementation.
+    # It assumes the `Plan` model has a boolean field `has_enough_context`.
+    if getattr(new_plan, 'has_enough_context', False):
+        logger.info("Planner determined it has enough context. Routing to reporter.")
+        goto = "reporter"
+    else:
+        logger.info("Planner requires additional information. Routing for human feedback.")
+        goto = "human_feedback"
+
+    # 6. Update State: Commit the new plan and increment the iteration counter.
     return Command(
         update={
-            "messages": [AIMessage(content=full_response, name="planner")],
-            "current_plan": full_response,
+            "messages": [AIMessage(content=full_response_content, name="planner")],
+            "current_plan": new_plan,  # Always store the validated Pydantic object
+            "plan_iterations": plan_iterations + 1,
         },
-        goto="human_feedback",
+        goto=goto,
     )
+
+
+
+# def planner_node(
+#     state: State, config: RunnableConfig
+# ) -> Command[Literal["human_feedback", "reporter"]]:
+#     """Planner node that generate the full plan."""
+#     logger.info("Planner generating full plan")
+#     configurable = Configuration.from_runnable_config(config)
+#     plan_iterations = state["plan_iterations"] if state.get("plan_iterations", 0) else 0
+#     messages = apply_prompt_template("planner", state, configurable)
+
+#     if state.get("enable_background_investigation") and state.get(
+#         "background_investigation_results"
+#     ):
+#         messages += [
+#             {
+#                 "role": "user",
+#                 "content": (
+#                     "background investigation results of user query:\n"
+#                     + state["background_investigation_results"]
+#                     + "\n"
+#                 ),
+#             }
+#         ]
+
+#     if configurable.enable_deep_thinking:
+#         llm = get_llm_by_type("reasoning")
+#     elif AGENT_LLM_MAP["planner"] == "basic":
+#         llm = get_llm_by_type("basic").with_structured_output(
+#             Plan,
+#             method="json_mode",
+#         )
+#     else:
+#         llm = get_llm_by_type(AGENT_LLM_MAP["planner"])
+
+#     # if the plan iterations is greater than the max plan iterations, return the reporter node
+#     if plan_iterations >= configurable.max_plan_iterations:
+#         return Command(goto="reporter")
+
+#     full_response = ""
+#     if AGENT_LLM_MAP["planner"] == "basic" and not configurable.enable_deep_thinking:
+#         response = llm.invoke(messages)
+#         full_response = response.model_dump_json(indent=4, exclude_none=True)
+#     else:
+#         response = llm.stream(messages)
+#         for chunk in response:
+#             full_response += chunk.content
+#     logger.debug(f"Current state messages: {state['messages']}")
+#     logger.info(f"Planner response: {full_response}")
+
+#     try:
+#         curr_plan = json.loads(repair_json_output(full_response))
+#     except json.JSONDecodeError:
+#         logger.warning("Planner response is not a valid JSON")
+#         if plan_iterations > 0:
+#             return Command(goto="reporter")
+#         else:
+#             return Command(goto="__end__")
+#     if isinstance(curr_plan, dict) and curr_plan.get("has_enough_context"):
+#         logger.info("Planner response has enough context.")
+#         new_plan = Plan.model_validate(curr_plan)
+#         return Command(
+#             update={
+#                 "messages": [AIMessage(content=full_response, name="planner")],
+#                 "current_plan": new_plan,
+#             },
+#             goto="reporter",
+#         )
+#     return Command(
+#         update={
+#             "messages": [AIMessage(content=full_response, name="planner")],
+#             "current_plan": full_response,
+#         },
+#         goto="human_feedback",
+#     )
 
 
 def human_feedback_node(
