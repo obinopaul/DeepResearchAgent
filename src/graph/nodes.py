@@ -729,7 +729,7 @@ async def _setup_and_execute_deep_agent_step(
             agent_name=agent_type,
             agent_type=agent_type,
             tools = loaded_tools,
-            prompt_template = get_prompt_template("sub_critique_prompt"),
+            prompt_template = get_prompt_template("main_research_prompt"),
             sub_research_prompt = get_prompt_template("sub_research_prompt"),
             sub_critique_prompt = get_prompt_template("sub_critique_prompt"),
             pre_model_hook = pre_model_hook
@@ -750,7 +750,7 @@ async def _setup_and_execute_deep_agent_step(
             agent_name=agent_type,
             agent_type=agent_type,
             tools = loaded_tools,
-            prompt_template = get_prompt_template("sub_critique_prompt"),
+            prompt_template = get_prompt_template("main_research_prompt"),
             sub_research_prompt = get_prompt_template("sub_research_prompt"),
             sub_critique_prompt = get_prompt_template("sub_critique_prompt"),
             pre_model_hook = pre_model_hook
