@@ -95,8 +95,6 @@ def apply_prompt_template(
         template = env.get_template(f"{prompt_name}.md")
         system_prompt = template.render(**state_vars)
         
-        # Convert message dicts to message objects
-        messages = [HumanMessage(**msg) for msg in state["messages"]]
-        return [SystemMessage(content=system_prompt)] + messages
+        return [SystemMessage(content=system_prompt)] + state["messages"]
     except Exception as e:
         raise ValueError(f"Error applying template {prompt_name}: {e}")
