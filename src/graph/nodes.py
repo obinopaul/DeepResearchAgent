@@ -244,10 +244,10 @@ def planner_node(
 #         curr_plan = json.loads(repair_json_output(full_response))
 #     except json.JSONDecodeError:
 #         logger.warning("Planner response is not a valid JSON")
-#         if plan_iterations > 0:
-#             return Command(goto="reporter")
-#         else:
-#             return Command(goto="__end__")
+        # if plan_iterations > 0:
+        #     return Command(goto="reporter")
+        # else:
+        #     return Command(goto="__end__")
 #     if isinstance(curr_plan, dict) and curr_plan.get("has_enough_context"):
 #         logger.info("Planner response has enough context.")
 #         new_plan = Plan.model_validate(curr_plan)
@@ -295,13 +295,21 @@ def human_feedback_node(
     plan_iterations = state["plan_iterations"] if state.get("plan_iterations", 0) else 0
     goto = "research_team"
     try:
-        current_plan = repair_json_output(current_plan)
-        # increment the plan iterations
-        plan_iterations += 1
-        # parse the plan
-        new_plan = json.loads(current_plan)
-    except json.JSONDecodeError:
-        logger.warning("Planner response is not a valid JSON")
+        # Since current_plan is now a Pydantic object, we no longer need to parse it.
+        # We just need to validate that it is the correct type.
+        if not isinstance(current_plan, Plan):
+            # If it's not a Plan object, raise an error to trigger the except block,
+            # preserving your original error-handling flow.
+            raise TypeError("current_plan is not a valid Plan object.")
+        
+        # increment the plan iterations (Your original logic)
+        # plan_iterations += 1
+        
+        # The final return statement expects a dictionary, so we convert the object.
+        # This replaces the old `json.loads(current_plan)`.
+        new_plan = current_plan.model_dump()
+    except (json.JSONDecodeError, TypeError): # Broadened to catch our new TypeError
+        logger.warning("Planner response is not a valid JSON or Plan object")
         if plan_iterations > 1:  # the plan_iterations is increased before this check
             return Command(goto="reporter")
         else:
@@ -315,6 +323,56 @@ def human_feedback_node(
         },
         goto=goto,
     )
+
+
+# def human_feedback_node(
+#     state,
+# ) -> Command[Literal["planner", "research_team", "reporter", "__end__"]]:
+#     current_plan = state.get("current_plan", "")
+#     # check if the plan is auto accepted
+#     auto_accepted_plan = state.get("auto_accepted_plan", False)
+#     if not auto_accepted_plan:
+#         feedback = interrupt("Please Review the Plan.")
+
+#         # if the feedback is not accepted, return the planner node
+#         if feedback and str(feedback).upper().startswith("[EDIT_PLAN]"):
+#             return Command(
+#                 update={
+#                     "messages": [
+#                         HumanMessage(content=feedback, name="feedback"),
+#                     ],
+#                 },
+#                 goto="planner",
+#             )
+#         elif feedback and str(feedback).upper().startswith("[ACCEPTED]"):
+#             logger.info("Plan is accepted by user.")
+#         else:
+#             raise TypeError(f"Interrupt value of {feedback} is not supported.")
+
+#     # if the plan is accepted, run the following node
+#     plan_iterations = state["plan_iterations"] if state.get("plan_iterations", 0) else 0
+#     goto = "research_team"
+#     try:
+#         current_plan = repair_json_output(current_plan)
+#         # increment the plan iterations
+#         plan_iterations += 1
+#         # parse the plan
+#         new_plan = json.loads(current_plan)
+#     except json.JSONDecodeError:
+#         logger.warning("Planner response is not a valid JSON")
+#         if plan_iterations > 1:  # the plan_iterations is increased before this check
+#             return Command(goto="reporter")
+#         else:
+#             return Command(goto="__end__")
+
+#     return Command(
+#         update={
+#             "current_plan": Plan.model_validate(new_plan),
+#             "plan_iterations": plan_iterations,
+#             "locale": new_plan["locale"],
+#         },
+#         goto=goto,
+#     )
 
 
 def coordinator_node(
