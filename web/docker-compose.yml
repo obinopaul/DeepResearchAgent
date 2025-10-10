@@ -1,11 +1,11 @@
 services:
-  deer-flow-web:
+  morgana-web:
     build:
       context: .
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
-    image: deer-flow-web
+    image: morgana-web
     ports:
       - "3000:3000"
     env_file:

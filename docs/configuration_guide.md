@@ -5,13 +5,13 @@
 Copy the `conf.yaml.example` file to `conf.yaml` and modify the configurations to match your specific settings and requirements.
 
 ```bash
-cd deer-flow
+cd DeepResearchAgent
 cp conf.yaml.example conf.yaml
 ```
 
-## Which models does DeerFlow support?
+## Which models does Morgana support?
 
-In DeerFlow, we currently only support non-reasoning models. This means models like OpenAI's o1/o3 or DeepSeek's R1 are not supported yet, but we plan to add support for them in the future. Additionally, all Gemma-3 models are currently unsupported due to the lack of tool usage capabilities.
+In Morgana, we currently only support non-reasoning models. This means models like OpenAI's o1/o3 or DeepSeek's R1 are not supported yet, but we plan to add support for them in the future. Additionally, all Gemma-3 models are currently unsupported due to the lack of tool usage capabilities.
 
 ### Supported Models
 
@@ -19,7 +19,7 @@ In DeerFlow, we currently only support non-reasoning models. This means models l
 
 ### Local Model Support
 
-DeerFlow supports local models through OpenAI-compatible APIs:
+Morgana supports local models through OpenAI-compatible APIs:
 
 - **Ollama**: `http://localhost:11434/v1` (tested and supported for local development)
 
@@ -37,7 +37,7 @@ You can switch the model in use by modifying the `conf.yaml` file in the root di
 
 ### How to use OpenAI-Compatible models?
 
-DeerFlow supports integration with OpenAI-Compatible models, which are models that implement the OpenAI API specification. This includes various open-source and commercial models that provide API endpoints compatible with the OpenAI format. You can refer to [litellm OpenAI-Compatible](https://docs.litellm.ai/docs/providers/openai_compatible) for detailed documentation.
+Morgana supports integration with OpenAI-Compatible models, which are models that implement the OpenAI API specification. This includes various open-source and commercial models that provide API endpoints compatible with the OpenAI format. You can refer to [litellm OpenAI-Compatible](https://docs.litellm.ai/docs/providers/openai_compatible) for detailed documentation.
 The following is a configuration example of `conf.yaml` for using OpenAI-Compatible models:
 
 ```yaml
@@ -108,7 +108,7 @@ AGENT_LLM_MAP: dict[str, LLMType] = {
 
 ### How to use Google AI Studio models?
 
-DeerFlow supports native integration with Google AI Studio (formerly Google Generative AI) API. This provides direct access to Google's Gemini models with their full feature set and optimized performance.
+Morgana supports native integration with Google AI Studio (formerly Google Generative AI) API. This provides direct access to Google's Gemini models with their full feature set and optimized performance.
 
 To use Google AI Studio models, you need to:
 1. Get your API key from [Google AI Studio](https://aistudio.google.com/app/apikey)
@@ -146,7 +146,7 @@ BASIC_MODEL:
 
 ### How to use Ollama models?
 
-DeerFlow supports the integration of Ollama models. You can refer to [litellm Ollama](https://docs.litellm.ai/docs/providers/ollama). <br>
+Morgana supports the integration of Ollama models. You can refer to [litellm Ollama](https://docs.litellm.ai/docs/providers/ollama). <br>
 The following is a configuration example of `conf.yaml` for using Ollama models(you might need to run the 'ollama serve' first):
 
 ```yaml
@@ -158,7 +158,7 @@ BASIC_MODEL:
 
 ### How to use OpenRouter models?
 
-DeerFlow supports the integration of OpenRouter models. You can refer to [litellm OpenRouter](https://docs.litellm.ai/docs/providers/openrouter). To use OpenRouter models, you need to:
+Morgana supports the integration of OpenRouter models. You can refer to [litellm OpenRouter](https://docs.litellm.ai/docs/providers/openrouter). To use OpenRouter models, you need to:
 1. Obtain the OPENROUTER_API_KEY from OpenRouter (https://openrouter.ai/) and set it in the environment variable.
 2. Add the `openrouter/` prefix before the model name.
 3. Configure the correct OpenRouter base URL.
@@ -179,7 +179,7 @@ Note: The available models and their exact names may change over time. Please ve
 
 ### How to use Azure OpenAI chat models?
 
-DeerFlow supports the integration of Azure OpenAI chat models. You can refer to [AzureChatOpenAI](https://python.langchain.com/api_reference/openai/chat_models/langchain_openai.chat_models.azure.AzureChatOpenAI.html). Configuration example of `conf.yaml`:
+Morgana supports the integration of Azure OpenAI chat models. You can refer to [AzureChatOpenAI](https://python.langchain.com/api_reference/openai/chat_models/langchain_openai.chat_models.azure.AzureChatOpenAI.html). Configuration example of `conf.yaml`:
 ```yaml
 BASIC_MODEL:
   model: "azure/gpt-4o-2024-08-06"
@@ -190,7 +190,7 @@ BASIC_MODEL:
 
 ### How to configure context length for different models
 
-Different models have different context length limitations. DeerFlow provides a method to control the context length between different models. You can configure the context length between different models in the `conf.yaml` file. For example:
+Different models have different context length limitations. Morgana provides a method to control the context length between different models. You can configure the context length between different models in the `conf.yaml` file. For example:
 ```yaml
 BASIC_MODEL:
   base_url: https://ark.cn-beijing.volces.com/api/v3
@@ -206,7 +206,7 @@ The context management doesn't work if the token_limit is not set.
 
 ### How to control search domains for Tavily?
 
-DeerFlow allows you to control which domains are included or excluded in Tavily search results through the configuration file. This helps improve search result quality and reduce hallucinations by focusing on trusted sources.
+Morgana allows you to control which domains are included or excluded in Tavily search results through the configuration file. This helps improve search result quality and reduce hallucinations by focusing on trusted sources.
 
 `Tips`: it only supports Tavily currently. 
 
@@ -234,7 +234,7 @@ SEARCH_ENGINE:
 
 ### How to post-process Tavily search results
 
-DeerFlow can post-process Tavily search results:
+Morgana can post-process Tavily search results:
 * Remove duplicate content
 * Filter low-quality content: Filter out results with low relevance scores
 * Clear base64 encoded images
@@ -256,7 +256,7 @@ That's meaning that the search results will be filtered based on the minimum rel
 
 ## RAG (Retrieval-Augmented Generation) Configuration
 
-DeerFlow supports multiple RAG providers for document retrieval. Configure the RAG provider by setting environment variables.
+Morgana supports multiple RAG providers for document retrieval. Configure the RAG provider by setting environment variables.
 
 ### Supported RAG Providers
 

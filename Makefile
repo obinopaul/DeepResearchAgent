@@ -1,7 +1,7 @@
 .PHONY: help lint format install-dev serve test coverage langgraph-dev lint-frontend
 
 help: ## Show this help message
-	@echo "Deer Flow - Available Make Targets:"
+	@echo "Morgana - Available Make Targets:"
 	@echo ""
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-18s\033[0m %s\n", $$1, $$2}'
 	@echo ""

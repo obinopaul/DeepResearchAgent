@@ -1,10 +1,10 @@
-# Contributing to DeerFlow
+# Contributing to Morgana
 
-Thank you for your interest in contributing to DeerFlow! We welcome contributions of all kinds from the community.
+Thank you for your interest in contributing to Morgana! We welcome contributions of all kinds from the community.
 
 ## Ways to Contribute
 
-There are many ways you can contribute to DeerFlow:
+There are many ways you can contribute to Morgana:
 
 - **Code Contributions**: Add new features, fix bugs, or improve performance
 - **Documentation**: Improve README, add code comments, or create examples
@@ -19,8 +19,8 @@ There are many ways you can contribute to DeerFlow:
 2. Clone your fork:
 
    ```bash
-   git clone https://github.com/bytedance/deer-flow.git
-   cd deer-flow
+   git clone https://github.com/obinopaul/DeepResearchAgent.git
+   cd DeepResearchAgent
    ```
 
 3. Set up your development environment:
@@ -139,6 +139,6 @@ If you need help with anything:
 
 ## License
 
-By contributing to DeerFlow, you agree that your contributions will be licensed under the MIT License.
+By contributing to Morgana, you agree that your contributions will be licensed under the MIT License.
 
-We appreciate your contributions to making DeerFlow better!
+We appreciate your contributions to making Morgana better!

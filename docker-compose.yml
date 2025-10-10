@@ -3,7 +3,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: deer-flow-backend
+    container_name: morgana-backend
     # Remove the ports section to not expose to host
     env_file:
       - .env
@@ -11,7 +11,7 @@ services:
       - ./conf.yaml:/app/conf.yaml:ro
     restart: unless-stopped
     networks:
-      - deer-flow-network
+      - morgana-network
 
   frontend:
     build:
@@ -19,7 +19,7 @@ services:
       dockerfile: Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
-    container_name: deer-flow-frontend
+    container_name: morgana-frontend
     ports:
       - "3000:3000"
     env_file:
@@ -28,8 +28,8 @@ services:
       - backend
     restart: unless-stopped
     networks:
-      - deer-flow-network
+      - morgana-network
 
 networks:
-  deer-flow-network:
+  morgana-network:
     driver: bridge

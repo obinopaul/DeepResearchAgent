@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 """
-Entry point script for the DeerFlow project.
+Entry point script for the Morgana project.
 """
 
 import argparse
@@ -98,7 +98,7 @@ def main(
 
 if __name__ == "__main__":
     # Set up argument parser
-    parser = argparse.ArgumentParser(description="Run the Deer")
+    parser = argparse.ArgumentParser(description="Run the Morgana agent.")
     parser.add_argument("query", nargs="*", help="The query to process")
     parser.add_argument(
         "--interactive",
