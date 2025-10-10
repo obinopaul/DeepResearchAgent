@@ -165,7 +165,7 @@ class MilvusRetriever(Retriever):
 
         schema = CollectionSchema(
             fields=fields,
-            description=f"Collection for DeerFlow RAG documents: {self.collection_name}",
+            description=f"Collection for Morgana RAG documents: {self.collection_name}",
             enable_dynamic_field=True,  # Allow additional dynamic metadata fields
         )
         return schema

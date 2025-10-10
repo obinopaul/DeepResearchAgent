@@ -12017,7 +12017,7 @@ event: message_chunk
 data: {"thread_id": "WBz9-nvt6t3jTVMqUbOqh", "agent": "reporter", "id": "run-7919cc1c-1f1d-4b40-8a4c-eb03ad0db519", "role": "assistant", "content": "."}
 
 event: message_chunk
-data: {"thread_id": "WBz9-nvt6t3jTVMqUbOqh", "agent": "reporter", "id": "run-7919cc1c-1f1d-4b40-8a4c-eb03ad0db519", "role": "assistant", "content": " Platform"}
+data: {"thread_id": "WBz9-nvt6t3jTVMqUbOqh", "agent": "er", "id": "run-7919cc1c-1f1d-4b40-8a4c-eb03ad0db519", "role": "assistant", "content": " Platform"}
 
 event: message_chunk
 data: {"thread_id": "WBz9-nvt6t3jTVMqUbOqh", "agent": "reporter", "id": "run-7919cc1c-1f1d-4b40-8a4c-eb03ad0db519", "role": "assistant", "content": "s"}
