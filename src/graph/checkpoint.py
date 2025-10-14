@@ -53,7 +53,7 @@ class ChatStreamManager:
         self.postgres_conn = None
 
         if self.checkpoint_saver:
-            if self.db_uri.startswith("mongodb://"):
+            if self.db_uri.startswith("mongodb://") or self.db_uri.startswith("mongodb+srv://"):
                 self._init_mongodb()
             elif self.db_uri.startswith("postgresql://") or self.db_uri.startswith(
                 "postgres://"

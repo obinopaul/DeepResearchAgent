@@ -107,9 +107,9 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
             or "gpt-4.1-2025-04-14"
         )
         try:
-            max_tokens = int(merged_conf.get("max_tokens", 100000))
+            max_tokens = int(merged_conf.get("max_tokens", 32000))
         except Exception:
-            max_tokens = 100000
+            max_tokens = 32000
         kwargs: Dict[str, Any] = {"model_name": model_name, "max_tokens": max_tokens}
         # Pick up API key from namespaced config or global ANTHROPIC_API_KEY
         api_key = (

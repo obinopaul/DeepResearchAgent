@@ -119,6 +119,8 @@ export async function sendMessage(
   setResponding(true);
   let messageId: string | undefined;
   try {
+    // Throttle UI updates for streaming chunks to reduce re-render pressure
+    let lastFlushTs = 0;
     for await (const event of stream) {
       const { type, data } = event;
       try {
@@ -164,7 +166,18 @@ export async function sendMessage(
       message ??= getMessage(messageId);
       if (message) {
         message = mergeMessage(message, event);
-        updateMessage(message);
+        // For high-frequency message_chunk events, throttle store updates
+        if (type === "message_chunk") {
+          const now = Date.now();
+          if (now - lastFlushTs < 50) {
+            // Skip this immediate update; a later chunk will flush
+          } else {
+            lastFlushTs = now;
+            updateMessage(message);
+          }
+        } else {
+          updateMessage(message);
+        }
         try {
           console.debug(
             "[store.sendMessage] updated",

@@ -378,7 +378,7 @@ async def _astream_workflow_generator(
                     else:
                         raise
 
-        if checkpoint_url.startswith("mongodb://"):
+        if checkpoint_url.startswith("mongodb://") or checkpoint_url.startswith("mongodb+srv://"):
             logger.info("start async mongodb checkpointer.")
             async with AsyncMongoDBSaver.from_conn_string(
                 checkpoint_url

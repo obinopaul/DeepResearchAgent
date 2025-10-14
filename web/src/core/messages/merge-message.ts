@@ -34,6 +34,13 @@ export function mergeMessage(message: Message, event: ChatEvent) {
         }
       });
     }
+    // Free memory: we no longer need per-chunk buffers once finished
+    if (message.contentChunks?.length) {
+      message.contentChunks = [];
+    }
+    if (message.reasoningContentChunks?.length) {
+      message.reasoningContentChunks = [];
+    }
   }
   return deepClone(message);
 }
