@@ -4,7 +4,7 @@
 from typing import Literal
 
 # Define available LLM types
-LLMType = Literal["basic", "reasoning", "vision", "code"]
+LLMType = Literal["basic", "reasoning", "vision", "code", "deepagent"]
 
 # Define agent-LLM mapping
 AGENT_LLM_MAP: dict[str, LLMType] = {
@@ -17,4 +17,6 @@ AGENT_LLM_MAP: dict[str, LLMType] = {
     "ppt_composer": "basic",
     "prose_writer": "basic",
     "prompt_enhancer": "basic",
+    # Dedicated model selection for deep agent orchestration
+    "deepagent": "deepagent",
 }

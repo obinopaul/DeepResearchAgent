@@ -53,9 +53,10 @@ def deep_agent(
     }
 
     """Factory function to create agents with consistent configuration."""
+    # Always use the dedicated deepagent LLM type for orchestration, independent of the caller's agent_type
     return create_deep_agent(
         # name=agent_name,
-        model=get_llm_by_type(AGENT_LLM_MAP[agent_type]),
+        model=get_llm_by_type(AGENT_LLM_MAP["deepagent"]),
         tools=tools,
         subagents=[critique_sub_agent, research_sub_agent],
         # instructions =lambda state: apply_prompt_template(prompt_template, state),

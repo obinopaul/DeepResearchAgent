@@ -7,6 +7,7 @@ from typing import Any, Dict, get_args
 
 import httpx
 from langchain_core.language_models import BaseChatModel
+from langchain_anthropic import ChatAnthropic
 from langchain_deepseek import ChatDeepSeek
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_openai import AzureChatOpenAI, ChatOpenAI
@@ -31,6 +32,7 @@ def _get_llm_type_config_keys() -> dict[str, str]:
         "basic": "BASIC_MODEL",
         "vision": "VISION_MODEL",
         "code": "CODE_MODEL",
+        "deepagent": "DEEPAGENT_MODEL",
     }
 
 
@@ -87,6 +89,24 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
         http_async_client = httpx.AsyncClient(verify=False)
         merged_conf["http_client"] = http_client
         merged_conf["http_async_client"] = http_async_client
+
+    # Deepagent: prefer Anthropic for orchestration
+    if llm_type == "deepagent":
+        # Map common keys to Anthropic parameters
+        model_name = (
+            llm_conf.get("model")
+            or llm_conf.get("model_name")
+            or merged_conf.get("model")
+            or merged_conf.get("model_name")
+            or "claude-sonnet-4-20250514"
+        )
+        max_tokens = int(merged_conf.get("max_tokens", llm_conf.get("max_tokens", 64000)))
+        kwargs: dict[str, Any] = {"model_name": model_name, "max_tokens": max_tokens}
+        # If an API key is explicitly provided in env/yaml, pass it through
+        api_key = merged_conf.get("api_key") or merged_conf.get("anthropic_api_key")
+        if api_key:
+            kwargs["anthropic_api_key"] = api_key
+        return ChatAnthropic(**kwargs)
 
     # Check if it's Google AI Studio platform based on configuration
     platform = merged_conf.get("platform", "").lower()
@@ -165,8 +185,8 @@ def get_configured_llm_models() -> dict[str, list[str]]:
             # Merge configurations, with environment variables taking precedence
             merged_conf = {**yaml_conf, **env_conf}
 
-            # Check if model is configured
-            model_name = merged_conf.get("model")
+            # Check if model is configured (Anthropic may use model_name)
+            model_name = merged_conf.get("model") or merged_conf.get("model_name")
             if model_name:
                 configured_models.setdefault(llm_type, []).append(model_name)
 
