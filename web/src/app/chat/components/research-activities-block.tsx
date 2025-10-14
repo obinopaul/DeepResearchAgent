@@ -74,10 +74,39 @@ function ActivityMessage({ messageId }: { messageId: string }) {
   const message = useMessage(messageId);
   if (message?.agent && message.content) {
     if (message.agent !== "reporter" && message.agent !== "planner") {
-      const contentString =
+      const raw =
         typeof message.content === "string"
           ? message.content
           : JSON.stringify(message.content);
+      // Filter out internal deep-agent operations to avoid noisy UI
+      const blockedTools = new Set([
+        "write_file",
+        "write_todos",
+        "ls",
+        "task",
+        "read_file",
+        "edit_file",
+      ]);
+      const contentString = raw
+        .split("\n")
+        .filter((line) => {
+          const t = line.trim();
+          if (t.startsWith("Updated todo list") || t.startsWith("Updated file")) {
+            return false;
+          }
+          if (t.startsWith("Running ")) {
+            const m = t.match(/^Running\s+([a-zA-Z0-9_]+)\s*\(\)\s*$/);
+            if (m && blockedTools.has(m[1]!)) {
+              return false;
+            }
+          }
+          return true;
+        })
+        .join("\n")
+        .trim();
+      if (!contentString) {
+        return null;
+      }
       return (
         <div className="px-4 py-2">
           <Markdown animated checkLinkCredibility>
@@ -94,9 +123,18 @@ function ActivityListItem({ messageId }: { messageId: string }) {
   const message = useMessage(messageId);
   if (message) {
     if (!message.isStreaming && message.toolCalls?.length) {
+      const allowedTools = new Set([
+        "web_search",
+        "crawl_tool",
+        "local_search_tool",
+        "python_repl_tool",
+      ]);
       for (const toolCall of message.toolCalls) {
         if (toolCall.result?.startsWith("Error")) {
           return null;
+        }
+        if (!allowedTools.has(toolCall.name)) {
+          continue;
         }
         if (toolCall.name === "web_search") {
           return <WebSearchToolCall key={toolCall.id} toolCall={toolCall} />;
@@ -106,8 +144,6 @@ function ActivityListItem({ messageId }: { messageId: string }) {
           return <PythonToolCall key={toolCall.id} toolCall={toolCall} />;
         } else if (toolCall.name === "local_search_tool") {
           return <RetrieverToolCall key={toolCall.id} toolCall={toolCall} />;
-        } else {
-          return <MCPToolCall key={toolCall.id} toolCall={toolCall} />;
         }
       }
     }

@@ -213,7 +213,24 @@ def _process_initial_messages(message, thread_id):
     )
 
 
-async def _process_message_chunk(message_chunk, message_metadata, thread_id, agent):
+ALLOWED_RESEARCH_TOOLS = {"web_search", "crawl_tool", "local_search_tool", "python_repl_tool"}
+BLOCKED_RESEARCH_LINE_PREFIXES = (
+    "Running write_file",
+    "Running write_todos",
+    "Running ls",
+    "Running task",
+    "Updated todo list",
+    "Updated file",
+)
+
+
+async def _process_message_chunk(
+    message_chunk,
+    message_metadata,
+    thread_id,
+    agent,
+    allowed_tool_ids: set[str],
+):
     """Process a single message chunk and yield appropriate events."""
     agent_name = _get_agent_name(agent, message_metadata)
     event_stream_message = _create_event_stream_message(
@@ -223,24 +240,44 @@ async def _process_message_chunk(message_chunk, message_metadata, thread_id, age
     if isinstance(message_chunk, ToolMessage):
         # Tool Message - Return the result of the tool call
         event_stream_message["tool_call_id"] = message_chunk.tool_call_id
+        # Filter researcher tool results to only allowed tool ids
+        if agent_name == "researcher" and message_chunk.tool_call_id not in allowed_tool_ids:
+            return
         yield _make_event("tool_call_result", event_stream_message)
     elif isinstance(message_chunk, AIMessageChunk):
         # AI Message - Raw message tokens
         if message_chunk.tool_calls:
             # AI Message - Tool Call
-            event_stream_message["tool_calls"] = message_chunk.tool_calls
-            event_stream_message["tool_call_chunks"] = _process_tool_call_chunks(
-                message_chunk.tool_call_chunks
-            )
-            yield _make_event("tool_calls", event_stream_message)
+            tool_calls = message_chunk.tool_calls
+            tool_call_chunks = _process_tool_call_chunks(message_chunk.tool_call_chunks)
+            if agent_name == "researcher":
+                # keep only allowed tools
+                tool_calls = [tc for tc in tool_calls if tc.get("name") in ALLOWED_RESEARCH_TOOLS]
+                allowed_ids = {tc.get("id") for tc in tool_calls if tc.get("id")}
+                # record allowed ids for subsequent results/chunks
+                allowed_tool_ids.update({i for i in allowed_ids if isinstance(i, str)})
+                tool_call_chunks = [c for c in tool_call_chunks if c.get("id") in allowed_tool_ids or c.get("id") == ""]
+            event_stream_message["tool_calls"] = tool_calls
+            event_stream_message["tool_call_chunks"] = tool_call_chunks
+            if tool_calls or tool_call_chunks:
+                yield _make_event("tool_calls", event_stream_message)
         elif message_chunk.tool_call_chunks:
             # AI Message - Tool Call Chunks
-            event_stream_message["tool_call_chunks"] = _process_tool_call_chunks(
-                message_chunk.tool_call_chunks
-            )
-            yield _make_event("tool_call_chunks", event_stream_message)
+            chunks = _process_tool_call_chunks(message_chunk.tool_call_chunks)
+            if agent_name == "researcher":
+                # only forward chunks that belong to previously allowed ids
+                chunks = [c for c in chunks if not c.get("id") or c.get("id") in allowed_tool_ids]
+            if chunks:
+                event_stream_message["tool_call_chunks"] = chunks
+                yield _make_event("tool_call_chunks", event_stream_message)
         else:
             # AI Message - Raw message tokens
+            if agent_name == "researcher":
+                content = (message_chunk.content or "") if hasattr(message_chunk, "content") else ""
+                # Drop internal operational noise to avoid clogging UI
+                for pref in BLOCKED_RESEARCH_LINE_PREFIXES:
+                    if content.strip().startswith(pref):
+                        return
             yield _make_event("message_chunk", event_stream_message)
 
 
@@ -249,6 +286,8 @@ async def _stream_graph_events(
 ):
     """Stream events from the graph and process them."""
     try:
+        # Track which tool_call_ids are allowed to stream for researcher agent
+        allowed_tool_ids: set[str] = set()
         async for agent, _, event_data in graph_instance.astream(
             workflow_input,
             config=workflow_config,
@@ -266,7 +305,7 @@ async def _stream_graph_events(
             )
 
             async for event in _process_message_chunk(
-                message_chunk, message_metadata, thread_id, agent
+                message_chunk, message_metadata, thread_id, agent, allowed_tool_ids
             ):
                 yield event
     except Exception as e:

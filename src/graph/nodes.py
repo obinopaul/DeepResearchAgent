@@ -580,7 +580,8 @@ async def _execute_deepagent_step(
     # correctly pointed out it's not needed for the self-contained deep_agent.
     result = await agent.ainvoke(input=agent_input)
 
-    response_content = result["messages"][-1].content
+    # response_content = result["messages"][-1].content
+    response_content = result['files']['final_report.md']
     logger.debug(f"{agent_name.capitalize()} full response: {response_content}")
 
     # Update the step with the execution result
@@ -597,6 +598,9 @@ async def _execute_deepagent_step(
                 )
             ],
             "observations": observations + [response_content],
+            "final_report": response_content,
+            # Persist the updated plan so routing logic sees completed steps
+            "current_plan": current_plan,
         },
         goto="research_team",
     )
@@ -711,6 +715,8 @@ async def _execute_agent_step(
                 )
             ],
             "observations": observations + [response_content],
+            # Persist the updated plan so routing logic sees completed steps
+            "current_plan": current_plan,
         },
         goto="research_team",
     )
@@ -916,6 +922,7 @@ async def researcher_node(
         "researcher",
         tools,
     )
+
 
 async def coder_node(
     state: State, config: RunnableConfig
