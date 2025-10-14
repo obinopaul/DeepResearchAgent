@@ -56,7 +56,6 @@ export async function* chatStream(
     for await (const event of stream) {
       // Debug: log incoming SSE event types
       try {
-        // eslint-disable-next-line no-console
         console.debug("[chatStream] event", event.event);
       } catch {}
       yield {

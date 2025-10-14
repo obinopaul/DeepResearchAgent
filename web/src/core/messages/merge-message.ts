@@ -95,7 +95,10 @@ function mergeToolCallResultMessage(
     (toolCall) => toolCall.id === event.data.tool_call_id,
   );
   if (toolCall) {
-    toolCall.result = event.data.content;
+    // Ensure tool result is always a string for UI rendering/parsing
+    const content = event.data.content as unknown;
+    toolCall.result =
+      typeof content === "string" ? content : JSON.stringify(content ?? "");
     // If this is a planner message and the tool call produced JSON content,
     // surface it into the main message content so the PlanCard can render.
     if (
@@ -111,8 +114,8 @@ function mergeToolCallResultMessage(
 function mergeInterruptMessage(message: Message, event: InterruptEvent) {
   message.isStreaming = false;
   // Preserve any text content carried by interrupt event (e.g., prompt for review)
-  if ((event.data as any).content && !message.content) {
-    message.content = (event.data as any).content as string;
+  if (event.data.content && !message.content) {
+    message.content = event.data.content;
   }
   message.options = event.data.options;
 }

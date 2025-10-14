@@ -72,6 +72,7 @@ export interface InterruptEvent
   extends GenericEvent<
     "interrupt",
     {
+      content?: string;
       options: Option[];
     }
   > {}

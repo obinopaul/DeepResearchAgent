@@ -122,7 +122,6 @@ export async function sendMessage(
     for await (const event of stream) {
       const { type, data } = event;
       try {
-        // eslint-disable-next-line no-console
         console.debug("[store.sendMessage] received", type, data?.agent, data?.id);
       } catch {}
       messageId = data.id;
@@ -167,7 +166,6 @@ export async function sendMessage(
         message = mergeMessage(message, event);
         updateMessage(message);
         try {
-          // eslint-disable-next-line no-console
           console.debug(
             "[store.sendMessage] updated",
             message.id,
@@ -192,7 +190,6 @@ export async function sendMessage(
     useStore.getState().setOngoingResearch(null);
   } finally {
     try {
-      // eslint-disable-next-line no-console
       console.debug("[store.sendMessage] stream finished");
     } catch {}
     setResponding(false);
@@ -215,10 +212,7 @@ function findMessageByToolCallId(toolCallId: string) {
   return Array.from(useStore.getState().messages.values())
     .reverse()
     .find((message) => {
-      if (message.toolCalls) {
-        return message.toolCalls.some((toolCall) => toolCall.id === toolCallId);
-      }
-      return false;
+      return message.toolCalls?.some((toolCall) => toolCall.id === toolCallId) ?? false;
     });
 }
 

@@ -74,10 +74,14 @@ function ActivityMessage({ messageId }: { messageId: string }) {
   const message = useMessage(messageId);
   if (message?.agent && message.content) {
     if (message.agent !== "reporter" && message.agent !== "planner") {
+      const contentString =
+        typeof message.content === "string"
+          ? message.content
+          : JSON.stringify(message.content);
       return (
         <div className="px-4 py-2">
           <Markdown animated checkLinkCredibility>
-            {message.content}
+            {contentString}
           </Markdown>
         </div>
       );

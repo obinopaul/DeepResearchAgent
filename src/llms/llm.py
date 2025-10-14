@@ -33,6 +33,7 @@ def _get_llm_type_config_keys() -> dict[str, str]:
         "vision": "VISION_MODEL",
         "code": "CODE_MODEL",
         "deepagent": "DEEPAGENT_MODEL",
+        "deepagent_openai": "DEEPAGENT_MODEL",
     }
 
 
@@ -73,6 +74,53 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
     if "token_limit" in merged_conf:
         merged_conf.pop("token_limit")
 
+    # Deepagent: prefer Anthropic for orchestration. Allow sane defaults even if no config provided.
+    if llm_type == "deepagent":
+        # Defaults with env overrides
+        model_name = (
+            merged_conf.get("model")
+            or merged_conf.get("model_name")
+            or "claude-sonnet-4-20250514"
+        )
+        try:
+            max_tokens = int(merged_conf.get("max_tokens", 64000))
+        except Exception:
+            max_tokens = 64000
+        kwargs: Dict[str, Any] = {"model_name": model_name, "max_tokens": max_tokens}
+        # Pick up API key from namespaced config or global ANTHROPIC_API_KEY
+        api_key = (
+            merged_conf.get("api_key")
+            or merged_conf.get("anthropic_api_key")
+            or os.getenv("ANTHROPIC_API_KEY")
+        )
+        if api_key:
+            kwargs["anthropic_api_key"] = api_key
+        return ChatAnthropic(**kwargs)
+
+
+    # Deepagent: prefer openai for orchestration. Allow sane defaults even if no config provided.
+    if llm_type == "deepagent_openai":
+        # Defaults with env overrides
+        model_name = (
+            merged_conf.get("model")
+            or merged_conf.get("model_name")
+            or "gpt-4.1-2025-04-14"
+        )
+        try:
+            max_tokens = int(merged_conf.get("max_tokens", 100000))
+        except Exception:
+            max_tokens = 100000
+        kwargs: Dict[str, Any] = {"model_name": model_name, "max_tokens": max_tokens}
+        # Pick up API key from namespaced config or global ANTHROPIC_API_KEY
+        api_key = (
+            merged_conf.get("api_key")
+            or merged_conf.get("openai_api_key")
+            or os.getenv("OPENAI_API_KEY")
+        )
+        if api_key:
+            kwargs["openai_api_key"] = api_key
+        return ChatOpenAI(**kwargs)
+    
     if not merged_conf:
         raise ValueError(f"No configuration found for LLM type: {llm_type}")
 
@@ -89,24 +137,6 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
         http_async_client = httpx.AsyncClient(verify=False)
         merged_conf["http_client"] = http_client
         merged_conf["http_async_client"] = http_async_client
-
-    # Deepagent: prefer Anthropic for orchestration
-    if llm_type == "deepagent":
-        # Map common keys to Anthropic parameters
-        model_name = (
-            llm_conf.get("model")
-            or llm_conf.get("model_name")
-            or merged_conf.get("model")
-            or merged_conf.get("model_name")
-            or "claude-sonnet-4-20250514"
-        )
-        max_tokens = int(merged_conf.get("max_tokens", llm_conf.get("max_tokens", 64000)))
-        kwargs: dict[str, Any] = {"model_name": model_name, "max_tokens": max_tokens}
-        # If an API key is explicitly provided in env/yaml, pass it through
-        api_key = merged_conf.get("api_key") or merged_conf.get("anthropic_api_key")
-        if api_key:
-            kwargs["anthropic_api_key"] = api_key
-        return ChatAnthropic(**kwargs)
 
     # Check if it's Google AI Studio platform based on configuration
     platform = merged_conf.get("platform", "").lower()

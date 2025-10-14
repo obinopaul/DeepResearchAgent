@@ -178,7 +178,12 @@ function MessageListItem({
           </div>
         );
       } else {
-        content = message.content ? (
+        // Ensure we render strings; if content is a non-string (e.g. object), stringify it
+        const contentString =
+          typeof message.content === "string"
+            ? message.content
+            : JSON.stringify(message.content);
+        content = contentString ? (
           <div
             className={cn(
               "flex w-full px-4",
@@ -194,7 +199,7 @@ function MessageListItem({
                       "prose-invert not-dark:text-secondary dark:text-inherit",
                   )}
                 >
-                  {message?.content}
+                  {contentString}
                 </Markdown>
               </div>
             </MessageBubble>
@@ -453,7 +458,6 @@ function PlanCard({
 
   // Log render state including interrupt linkage
   try {
-    // eslint-disable-next-line no-console
     console.debug(
       "[PlanCard] state",
       {
