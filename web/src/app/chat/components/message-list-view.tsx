@@ -47,6 +47,7 @@ import {
   useResearchMessage,
   useStore,
 } from "~/core/store";
+import { useInterruptMessageFor } from "~/core/store";
 import { parseJSON } from "~/core/utils";
 import { cn } from "~/lib/utils";
 
@@ -438,6 +439,10 @@ function PlanCard({
   waitForFeedback?: boolean;
 }) {
   const t = useTranslations("chat.research");
+  // Prefer an interrupt that occurs after this specific plan message, falling back to global
+  const interruptForThisPlan = useInterruptMessageFor(message.id);
+  const effectiveInterruptMessage = interruptForThisPlan ?? interruptMessage;
+  const effectiveWaitForFeedback = interruptForThisPlan ? true : waitForFeedback;
   const plan = useMemo<{
     title?: string;
     thought?: string;
@@ -445,6 +450,22 @@ function PlanCard({
   }>(() => {
     return parseJSON(message.content ?? "", {});
   }, [message.content]);
+
+  // Log render state including interrupt linkage
+  try {
+    // eslint-disable-next-line no-console
+    console.debug(
+      "[PlanCard] state",
+      {
+        id: message.id,
+        agent: message.agent,
+        isStreaming: message.isStreaming,
+        hasInterruptOptions: !!effectiveInterruptMessage?.options?.length,
+        waitForFeedback: effectiveWaitForFeedback,
+        hasPlan: !!plan?.steps?.length || !!plan?.title || !!plan?.thought,
+      },
+    );
+  } catch {}
 
   const reasoningContent = message.reasoningContent;
   const hasMainContent = Boolean(
@@ -536,20 +557,20 @@ function PlanCard({
               </div>
             </CardContent>
             <CardFooter className="flex justify-end">
-              {!message.isStreaming && interruptMessage?.options?.length && (
+              {effectiveInterruptMessage?.options?.length && (
                 <motion.div
                   className="flex gap-2"
                   initial={{ opacity: 0, y: 12 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.3, delay: 0.3 }}
                 >
-                  {interruptMessage?.options.map((option) => (
+                  {effectiveInterruptMessage?.options.map((option) => (
                     <Button
                       key={option.value}
                       variant={
                         option.value === "accepted" ? "default" : "outline"
                       }
-                      disabled={!waitForFeedback}
+                      disabled={!effectiveWaitForFeedback}
                       onClick={() => {
                         if (option.value === "accepted") {
                           void handleAccept();

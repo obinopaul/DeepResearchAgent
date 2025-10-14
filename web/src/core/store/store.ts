@@ -121,7 +121,29 @@ export async function sendMessage(
   try {
     for await (const event of stream) {
       const { type, data } = event;
+      try {
+        // eslint-disable-next-line no-console
+        console.debug("[store.sendMessage] received", type, data?.agent, data?.id);
+      } catch {}
       messageId = data.id;
+      // If we receive an interrupt event, ensure the latest planner message
+      // is marked as not streaming so the UI can render feedback controls.
+      if (type === "interrupt") {
+        const state = useStore.getState();
+        const latestPlannerId = [...state.messageIds]
+          .reverse()
+          .find((id) => state.messages.get(id)?.agent === "planner");
+        if (latestPlannerId) {
+          const latestPlanner = state.messages.get(latestPlannerId);
+          if (latestPlanner && latestPlanner.isStreaming) {
+            // Mark planner message as finished to enable HITL controls
+            useStore.getState().updateMessage({
+              ...latestPlanner,
+              isStreaming: false,
+            });
+          }
+        }
+      }
       let message: Message | undefined;
       if (type === "tool_call_result") {
         message = findMessageByToolCallId(data.tool_call_id);
@@ -144,6 +166,16 @@ export async function sendMessage(
       if (message) {
         message = mergeMessage(message, event);
         updateMessage(message);
+        try {
+          // eslint-disable-next-line no-console
+          console.debug(
+            "[store.sendMessage] updated",
+            message.id,
+            message.agent,
+            message.finishReason,
+            { hasOptions: !!message.options?.length },
+          );
+        } catch {}
       }
     }
   } catch {
@@ -159,6 +191,10 @@ export async function sendMessage(
     }
     useStore.getState().setOngoingResearch(null);
   } finally {
+    try {
+      // eslint-disable-next-line no-console
+      console.debug("[store.sendMessage] stream finished");
+    } catch {}
     setResponding(false);
   }
 }
@@ -396,6 +432,25 @@ export function useToolCalls() {
         ?.map((id) => getMessage(id)?.toolCalls)
         .filter((toolCalls) => toolCalls != null)
         .flat();
+    }),
+  );
+}
+
+// Find the first interrupt message that appears after the given messageId.
+export function useInterruptMessageFor(messageId: string) {
+  return useStore(
+    useShallow((state) => {
+      const index = state.messageIds.indexOf(messageId);
+      if (index >= 0) {
+        for (let i = index + 1; i < state.messageIds.length; i++) {
+          const mid = state.messageIds[i]!;
+          const m = state.messages.get(mid);
+          if (m?.finishReason === "interrupt") {
+            return m;
+          }
+        }
+      }
+      return null;
     }),
   );
 }

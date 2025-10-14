@@ -96,10 +96,23 @@ function mergeToolCallResultMessage(
   );
   if (toolCall) {
     toolCall.result = event.data.content;
+    // If this is a planner message and the tool call produced JSON content,
+    // surface it into the main message content so the PlanCard can render.
+    if (
+      message.agent === "planner" &&
+      typeof event.data.content === "string" &&
+      (!message.content || message.content.trim() === "")
+    ) {
+      message.content = event.data.content;
+    }
   }
 }
 
 function mergeInterruptMessage(message: Message, event: InterruptEvent) {
   message.isStreaming = false;
+  // Preserve any text content carried by interrupt event (e.g., prompt for review)
+  if ((event.data as any).content && !message.content) {
+    message.content = (event.data as any).content as string;
+  }
   message.options = event.data.options;
 }

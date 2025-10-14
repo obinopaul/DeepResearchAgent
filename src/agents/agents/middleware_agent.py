@@ -1,5 +1,8 @@
 """Middleware agent implementation.""" 
 
+import asyncio
+import logging
+
 import itertools
 from collections.abc import Callable, Sequence
 from typing import Annotated, Any, cast, get_args, get_origin, get_type_hints
@@ -40,6 +43,13 @@ from src.agents.agents.structured_output import (
 from langchain.chat_models import init_chat_model
 # from langchain.tools import ToolNode
 from src.agents.agents.tools import ToolNode
+
+try:  # Optional: Google GenAI specific exceptions for robust retry
+    from google.api_core import exceptions as google_exceptions  # type: ignore
+except Exception:  # pragma: no cover - library may be absent in some configs
+    google_exceptions = None  # type: ignore
+
+logger = logging.getLogger(__name__)
 
 STRUCTURED_OUTPUT_ERROR_TEMPLATE = "Error: {error}\n Please fix your mistakes."
 
@@ -573,6 +583,20 @@ def create_agent(  # noqa: PLR0915
                         )
                         raise TypeError(msg)
                 else:
+                    # If no middleware wants to retry, apply generic transient retry for known providers
+                    if google_exceptions and isinstance(
+                        error, getattr(google_exceptions, "InternalServerError", tuple())
+                    ):
+                        import time
+                        backoff = min(2 ** min(attempt, 4), 16)
+                        logger.warning(
+                            "Google GenAI InternalServerError on attempt %s; retrying in %ss",
+                            attempt,
+                            backoff,
+                        )
+                        time.sleep(backoff)
+                        continue
+                    # If not retryable, re-raise
                     raise
 
         # If we exit the loop, max attempts exceeded
@@ -621,7 +645,19 @@ def create_agent(  # noqa: PLR0915
                         request = retry_request
                         break
                 else:
-                    # If no middleware wants to retry, re-raise the error
+                    # If no middleware wants to retry, apply generic transient retry for known providers
+                    if google_exceptions and isinstance(
+                        error, getattr(google_exceptions, "InternalServerError", tuple())
+                    ):
+                        backoff = min(2 ** min(attempt, 4), 16)
+                        logger.warning(
+                            "Google GenAI InternalServerError on attempt %s; retrying in %ss",
+                            attempt,
+                            backoff,
+                        )
+                        await asyncio.sleep(backoff)
+                        continue
+                    # If not retryable, re-raise
                     raise
 
         # If we exit the loop, max attempts exceeded

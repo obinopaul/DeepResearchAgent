@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: MIT
 
 import base64
+import asyncio
 import json
 import logging
 from typing import Annotated, Any, List, cast
@@ -99,21 +100,23 @@ async def chat_stream(request: ChatRequest):
     if thread_id == "__default__":
         thread_id = str(uuid4())
 
+    base_stream = _astream_workflow_generator(
+        request.model_dump()["messages"],
+        thread_id,
+        request.resources,
+        request.max_plan_iterations,
+        request.max_step_num,
+        request.max_search_results,
+        request.auto_accepted_plan,
+        request.interrupt_feedback,
+        request.mcp_settings if mcp_enabled else {},
+        request.enable_background_investigation,
+        request.report_style,
+        request.enable_deep_thinking,
+    )
+    # Wrap with heartbeat to keep long-lived SSE connections alive across proxies
     return StreamingResponse(
-        _astream_workflow_generator(
-            request.model_dump()["messages"],
-            thread_id,
-            request.resources,
-            request.max_plan_iterations,
-            request.max_step_num,
-            request.max_search_results,
-            request.auto_accepted_plan,
-            request.interrupt_feedback,
-            request.mcp_settings if mcp_enabled else {},
-            request.enable_background_investigation,
-            request.report_style,
-            request.enable_deep_thinking,
-        ),
+        _stream_with_heartbeat(base_stream, interval_seconds=10),
         media_type="text/event-stream",
     )
 
@@ -254,6 +257,7 @@ async def _stream_graph_events(
         ):
             if isinstance(event_data, dict):
                 if "__interrupt__" in event_data:
+                    logger.info("Emitting interrupt event and pausing for HITL")
                     yield _create_interrupt_event(thread_id, event_data)
                 continue
 
@@ -333,21 +337,46 @@ async def _astream_workflow_generator(
         "autocommit": True,
         "row_factory": "dict_row",
         "prepare_threshold": 0,
+        # Keep the TCP connection alive to avoid idle disconnects during long runs
+        # These are libpq options supported by psycopg
+        "keepalives": 1,
+        "keepalives_idle": 30,      # seconds before starting keepalives
+        "keepalives_interval": 10,  # seconds between keepalives
+        "keepalives_count": 5,      # number of lost keepalives before disconnect
     }
     if checkpoint_saver and checkpoint_url != "":
         if checkpoint_url.startswith("postgresql://"):
             logger.info("start async postgres checkpointer.")
             async with AsyncConnectionPool(
-                checkpoint_url, kwargs=connection_kwargs
+                checkpoint_url,
+                min_size=1,
+                max_size=10,
+                timeout=60,
+                kwargs=connection_kwargs,
             ) as conn:
                 checkpointer = AsyncPostgresSaver(conn)
                 await checkpointer.setup()
                 graph.checkpointer = checkpointer
                 graph.store = in_memory_store
-                async for event in _stream_graph_events(
-                    graph, workflow_input, workflow_config, thread_id
-                ):
-                    yield event
+                try:
+                    async for event in _stream_graph_events(
+                        graph, workflow_input, workflow_config, thread_id
+                    ):
+                        yield event
+                except Exception as e:
+                    # If the Postgres connection drops (e.g., SSL EOF), degrade gracefully
+                    import psycopg
+                    if isinstance(e, psycopg.OperationalError):
+                        logger.exception(
+                            "Postgres checkpointer error; degrading to in-memory for this run"
+                        )
+                        graph.checkpointer = None
+                        async for event in _stream_graph_events(
+                            graph, workflow_input, workflow_config, thread_id
+                        ):
+                            yield event
+                    else:
+                        raise
 
         if checkpoint_url.startswith("mongodb://"):
             logger.info("start async mongodb checkpointer.")
@@ -366,6 +395,39 @@ async def _astream_workflow_generator(
             graph, workflow_input, workflow_config, thread_id
         ):
             yield event
+
+
+async def _stream_with_heartbeat(async_iterable, interval_seconds: int = 10):
+    """Wrap an async iterable stream and emit SSE comments as heartbeats.
+
+    Many proxies/browsers terminate idle HTTP connections. By sending SSE comment
+    lines periodically (": keepalive\n\n"), we keep the connection active without
+    producing parseable events on the client.
+    """
+    iterator = async_iterable.__aiter__()
+    next_item = asyncio.create_task(iterator.__anext__())
+    heartbeat = asyncio.create_task(asyncio.sleep(interval_seconds))
+    try:
+        while True:
+            done, _ = await asyncio.wait(
+                {next_item, heartbeat}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if heartbeat in done:
+                # Emit SSE comment (ignored by client parser)
+                yield ": keepalive\n\n"
+                heartbeat = asyncio.create_task(asyncio.sleep(interval_seconds))
+            if next_item in done:
+                try:
+                    event = next_item.result()
+                except StopAsyncIteration:
+                    break
+                yield event
+                next_item = asyncio.create_task(iterator.__anext__())
+    finally:
+        # Ensure tasks are cancelled to avoid leaks
+        for task in (next_item, heartbeat):
+            if not task.done():
+                task.cancel()
 
 
 def _make_event(event_type: str, data: dict[str, any]):
