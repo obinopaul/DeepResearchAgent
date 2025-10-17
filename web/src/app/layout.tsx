@@ -15,10 +15,20 @@ import { env } from "~/env";
 import { Toaster } from "../components/deer-flow/toaster";
 
 export const metadata: Metadata = {
-  title: "🦌 Morgana",
+  title: {
+    default: "Morgana",
+    template: "%s | Morgana",
+  },
   description:
-    "Deep Exploration and Efficient Research, an AI tool that combines language models with specialized tools for research tasks.",
-  icons: [{ rel: "icon", url: "/favicon.ico" }],
+    "Morgana is a deep research studio that orchestrates multi-agent investigations, source-grounded synthesis, and polished deliverables.",
+  icons: {
+    icon: [
+      { rel: "icon", url: "/tab-logo.svg", type: "image/svg+xml" },
+      { rel: "icon", url: "/morgana-favicon.svg", type: "image/svg+xml" },
+    ],
+    shortcut: [{ url: "/tab-logo.svg" }],
+    apple: [{ url: "/tab-logo.svg" }],
+  },
 };
 
 const geist = Geist({
@@ -70,3 +80,5 @@ export default async function RootLayout({
     </html>
   );
 }
+
+

@@ -19,33 +19,34 @@ export function ConversationStarter({
   const questions = t.raw("conversationStarters") as string[];
 
   return (
-    <div className={cn("flex flex-col items-center", className)}>
-      <div className="pointer-events-none fixed inset-0 flex items-center justify-center">
-        <Welcome className="pointer-events-auto mb-15 w-[75%] -translate-y-24" />
-      </div>
-      <ul className="flex flex-wrap">
+    <div className={cn("flex flex-col items-center gap-6", className)}>
+      <Welcome className="w-full max-w-3xl" />
+      <ul className="grid w-full max-w-3xl grid-cols-1 gap-3 md:grid-cols-2">
         {questions.map((question, index) => (
           <motion.li
             key={question}
-            className="flex w-1/2 shrink-0 p-2 active:scale-105"
-            style={{ transition: "all 0.2s ease-out" }}
+            className="w-full"
+            style={{ transition: "all 0.25s ease-out" }}
             initial={{ opacity: 0, y: 24 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
             transition={{
-              duration: 0.2,
-              delay: index * 0.1 + 0.5,
+              duration: 0.3,
+              delay: index * 0.08 + 0.4,
               ease: "easeOut",
             }}
           >
-            <div
-              className="bg-card text-muted-foreground h-full w-full cursor-pointer rounded-2xl border px-4 py-4 opacity-75 transition-all duration-300 hover:opacity-100 hover:shadow-md"
+            <button
+              type="button"
+              className="group flex h-full w-full items-start justify-between gap-3 rounded-2xl border border-border/60 bg-gradient-to-br from-background via-background to-transparent px-5 py-4 text-left text-sm text-foreground/80 shadow-sm transition hover:border-primary/40 hover:text-foreground hover:shadow-lg"
               onClick={() => {
                 onSend?.(question);
               }}
             >
-              {question}
-            </div>
+              <span>{question}</span>
+              <span className="mt-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary transition group-hover:bg-primary group-hover:text-primary-foreground">
+                ↗
+              </span>
+            </button>
           </motion.li>
         ))}
       </ul>

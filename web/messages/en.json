@@ -19,10 +19,20 @@
     "title": "Morgana"
   },
   "hero": {
-    "title": "Deep Research",
-    "subtitle": "at Your Fingertips",
-    "description": "Meet Morgana, your personal Deep Research assistant. With powerful tools like search engines, web crawlers, Python and MCP services, it delivers instant insights, comprehensive reports, and even captivating podcasts.",
-    "footnote": "* Built by Paul Okafor"
+    "eyebrow": "Autonomous Research Workspace",
+    "title": "Deep Research at Your Fingertips",
+    "highlighted": "Morgana",
+    "description": "Morgana is a personal deep-research companion—an orchestrated stack of agents that scouts sources, verifies claims, and assembles polished deliverables without the busywork.",
+    "highlight1": "Multi-agent investigations coordinated end-to-end",
+    "highlight2": "Source-grounded briefs, timelines, and executive summaries",
+    "highlight3": "Human-in-the-loop controls whenever you want to steer",
+    "chatPreview": {
+      "title": "Watch Morgana spin up a new thread",
+      "userMessage": "Map the funding landscape for climate-insurtech startups in LATAM.",
+      "assistantMessage": "On it—pulling filings, investor notes, and competitive intel. I'll return a structured brief with citations, a pipeline timeline, and partnership leads.",
+      "hint": "Tap to open the full research studio"
+    },
+    "footnote": "Built by Paul Okafor · Crafted for long-form thinking"
   },
   "settings": {
     "title": "Morgana Settings",
@@ -83,14 +93,15 @@
         "starOnGitHub": "Star Morgana on GitHub"
     },
     "welcome": {
-      "greeting": "👋 Hello, there!",
-      "description": "Welcome to 🦌 Morgana, a deep research assistant built on cutting-edge language models, helps you search on web, browse information, and handle complex tasks."
+      "tagline": "Research Studio",
+      "greeting": "Set the stage for your next investigation",
+      "description": "Pick a prompt to watch Morgana orchestrate an end-to-end research sprint, or drop your own challenge below."
     },
     "conversationStarters": [
-      "How many times taller is the Eiffel Tower than the tallest building in the world?",
-      "How many years does an average Tesla battery last compared to a gasoline engine?",
-      "How many liters of water are required to produce 1 kg of beef?",
-      "How many times faster is the speed of light compared to the speed of sound?"
+      "Draft a market brief on European battery-recycling startups, including leading players and regulatory headwinds.",
+      "Compare the expansion strategies of Uber Eats and DoorDash across Southeast Asia.",
+      "Outline a 30-day research roadmap for entering the precision agriculture market.",
+      "Summarize the latest breakthroughs in multimodal AI for enterprise customer support."
     ],
     "inputBox": {
       "deepThinking": "Deep Thinking",
@@ -229,3 +240,4 @@
     }
   }
 }
+

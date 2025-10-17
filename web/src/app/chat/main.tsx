@@ -20,26 +20,23 @@ export default function Main() {
   return (
     <div
       className={cn(
-        "flex h-full w-full justify-center-safe px-4 pt-12 pb-4",
+        "relative z-10 flex h-full w-full justify-center-safe px-6 pb-4 pt-4",
         doubleColumnMode && "gap-8",
       )}
     >
       <MessagesBlock
         className={cn(
           "shrink-0 transition-all duration-300 ease-out",
-          !doubleColumnMode &&
-            `w-[768px] translate-x-[min(max(calc((100vw-538px)*0.75),575px)/2,960px/2)]`,
-          doubleColumnMode && `w-[538px]`,
+          !doubleColumnMode && "mx-auto w-full max-w-[880px]",
+          doubleColumnMode && "w-[560px]",
         )}
       />
-      <ResearchBlock
-        className={cn(
-          "w-[min(max(calc((100vw-538px)*0.75),575px),960px)] pb-4 transition-all duration-300 ease-out",
-          !doubleColumnMode && "scale-0",
-          doubleColumnMode && "",
-        )}
-        researchId={openResearchId}
-      />
+      {doubleColumnMode && (
+        <ResearchBlock
+          className="w-[min(max(calc((100vw-560px)*0.75),600px),980px)] pb-4 transition-all duration-300 ease-out"
+          researchId={openResearchId}
+        />
+      )}
     </div>
   );
 }

@@ -1,45 +1,34 @@
-# 🦌 [关于 DeerFlow](https://github.com/obinopaul/DeepResearchAgent)
+# Morgana 研究工作室
 
-> **源于开源，回馈开源**
+> 由 Paul Okafor 打造，用于获得可信赖的深度洞察。
 
-**DeerFlow**（**深度探索**和**高效研究**流程）是一个由社区驱动的 AI 自动化框架，受到开源社区卓越贡献的启发。我们的使命是将语言模型与专业工具无缝集成，用于网络搜索、爬取和 Python 代码执行等任务——同时回馈使这种创新成为可能的社区。
-
----
-
-## 🌟 GitHub 仓库
-
-在 GitHub 上探索 DeerFlow：[github.com/obinopaul/DeepResearchAgent](https://github.com/obinopaul/DeepResearchAgent)
+Morgana 是我为复杂问题建立的研究工作台。它通过多智能体协同、精选工具链以及人类校验环节，让长程调研保持准确、有出处、并与目标一致。
 
 ---
 
-## 📜 软件许可证
+## Morgana 能做什么
 
-DeerFlow 作为开源项目，在 **MIT 许可证** 下分发。
+- **智能体协作** —— 调度主管与专业智能体完成规划、检索、验证与撰写。
+- **有据可查的输出** —— 每份简报、时间线与建议都会链接到其证据来源。
+- **随时介入的控制权** —— 你可以打断流程、给出新指示或直接确认计划，让研究保持可控。
+- **可分享的成果物** —— 在研究画布中导出精美报告，或一键生成旁白播客。
 
 ---
 
-## 🙌 致谢
+## 坚持开放
 
-我们衷心感谢使 DeerFlow 成为现实的开源项目和贡献者。我们真正站在巨人的肩膀上。
+Morgana 以 **MIT 许可证** 开源发布，欢迎学习、复刻或扩展。欢迎在仓库中 Star、提交 Issue 或 PR：
 
-### 核心框架
-- **[LangChain](https://github.com/langchain-ai/langchain)**：支持我们 LLM 交互和链的卓越框架。
-- **[LangGraph](https://github.com/langchain-ai/langgraph)**：实现复杂的多智能体编排。
-- **[Next.js](https://nextjs.org/)**：构建 Web 应用程序的前沿框架。
+👉 [github.com/obinopaul/DeepResearchAgent](https://github.com/obinopaul/DeepResearchAgent)
 
-### UI 库
-- **[Shadcn](https://ui.shadcn.com/)**：支持我们 UI 的简约组件。
-- **[Zustand](https://zustand.docs.pmnd.rs/)**：令人惊叹的状态管理库。
-- **[Framer Motion](https://www.framer.com/motion/)**：出色的动画库。
-- **[React Markdown](https://www.npmjs.com/package/react-markdown)**：具有可定制性的卓越 markdown 渲染。
-- **[SToneX](https://github.com/stonexer)**：感谢他对逐字符视觉效果的宝贵贡献。
+---
 
-这些杰出的项目构成了 DeerFlow 的骨干，体现了开源协作的变革力量。
+## 致谢
 
-### 特别感谢
-最后，我们要向 `DeerFlow` 的核心作者表达衷心的感谢：
+Morgana 构建在出色的开源生态之上：
 
-- **[Daniel Walnut](https://github.com/hetaoBackend/)**
-- **[Henry Li](https://github.com/magiccube/)**
+- [LangChain](https://github.com/langchain-ai/langchain) 与 [LangGraph](https://github.com/langchain-ai/langgraph) 提供稳健的智能体编排能力。
+- [Next.js](https://nextjs.org/)、[Vercel AI SDK](https://sdk.vercel.ai/) 与 [shadcn/ui](https://ui.shadcn.com/) 支撑现代化的界面体验。
+- [Zustand](https://zustand.docs.pmnd.rs/) 与 [Framer Motion](https://www.framer.com/motion/) 带来顺滑的状态管理和动效表现。
 
-没有他们的愿景、热情和奉献，`DeerFlow` 就不会有今天的成就。
+如果你基于 Morgana 构建了新的项目，欢迎告诉我。让我们一起打造更好的深度思考工具。

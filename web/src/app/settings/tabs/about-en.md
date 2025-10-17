@@ -1,38 +1,34 @@
-# 🦌 [About Morgana](https://github.com/obinopaul/DeepResearchAgent)
+# Morgana Research Studio
 
-> **From Open Source, Back to Open Source**
+> Crafted by Paul Okafor for deep, defensible answers.
 
-**Morgana** is an AI automation framework inspired by the remarkable contributions of the open source community. Our mission is to seamlessly integrate language models with specialized tools for tasks such as web search, crawling, and Python code execution—all while giving back to the community that made this innovation possible.
-
----
-
-## 🌟 GitHub Repository
-
-Explore Morgana on GitHub: [github.com/obinopaul/DeepResearchAgent](https://github.com/obinopaul/DeepResearchAgent)
+Morgana is the research workbench I rely on when a question deserves more than a quick search-result skim. It layers orchestrated agents, curated tools, and human-in-the-loop checkpoints so long-form investigations stay accurate, citeable, and aligned with intent.
 
 ---
 
-## 📜 License
+## What Morgana Delivers
 
-Morgana is proudly open source and distributed under the **MIT License**.
+- **Agent choreography** – Supervisor and specialist agents coordinate planning, sourcing, verification, and synthesis.
+- **Source-grounded outputs** – Every brief, timeline, and recommendation links back to the evidence that produced it.
+- **On-demand guardrails** – Interrupt any run, steer it with new guidance, or accept the plan to keep the loop moving.
+- **Shareable artifacts** – Export polished reports or spin up narrated podcasts straight from the research canvas.
 
 ---
 
-## 🙌 Acknowledgments
+## Open by Design
 
-We extend our heartfelt gratitude to the open source projects and contributors who have made Morgana a reality. We truly stand on the shoulders of giants.
+Morgana is released under the **MIT License** so anyone can learn from, remix, or extend the stack. Star the project, file issues, or open pull requests here:
 
-### Core Frameworks
-- **[LangChain](https://github.com/langchain-ai/langchain)**: A phenomenal framework that powers our LLM interactions and chains.
-- **[LangGraph](https://github.com/langchain-ai/langgraph)**: Enabling sophisticated multi-agent orchestration.
-- **[Next.js](https://nextjs.org/)**: A cutting-edge framework for building web applications.
+👉 [github.com/obinopaul/DeepResearchAgent](https://github.com/obinopaul/DeepResearchAgent)
 
-### UI Libraries
-- **[Shadcn](https://ui.shadcn.com/)**: Minimalistic components that power our UI.
-- **[Zustand](https://zustand.docs.pmnd.rs/)**: A stunning state management library.
-- **[Framer Motion](https://www.framer.com/motion/)**: An amazing animation library.
-- **[React Markdown](https://www.npmjs.com/package/react-markdown)**: Exceptional markdown rendering with customizability.
-- **[SToneX](https://github.com/stonexer)**: For his invaluable contribution to token-by-token visual effects.
+---
 
-These outstanding projects form the backbone of Morgana and exemplify the transformative power of open source collaboration.
+## Thanks to the Ecosystem
 
+This studio stands on the shoulders of stellar open source projects:
+
+- [LangChain](https://github.com/langchain-ai/langchain) and [LangGraph](https://github.com/langchain-ai/langgraph) for reliable agent orchestration.
+- [Next.js](https://nextjs.org/), [Vercel AI SDK](https://sdk.vercel.ai/), and [shadcn/ui](https://ui.shadcn.com/) for the front-of-house experience.
+- [Zustand](https://zustand.docs.pmnd.rs/) and [Framer Motion](https://www.framer.com/motion/) for state management and motion design.
+
+If you ship something with Morgana, I’d love to hear about it. Let’s keep building tools that make deep thinking easier.

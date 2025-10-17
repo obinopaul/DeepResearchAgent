@@ -127,7 +127,7 @@ export function InputBox({
   return (
     <div
       className={cn(
-        "bg-card relative flex h-full w-full flex-col rounded-[24px] border",
+        "bg-card relative flex w-full flex-col rounded-[20px] border border-border/60 shadow-[0_24px_60px_-45px_rgba(15,23,42,0.65)]",
         className,
       )}
       ref={containerRef}
@@ -201,8 +201,8 @@ export function InputBox({
         </AnimatePresence>
         <MessageInput
           className={cn(
-            "h-24 px-4 pt-5",
-            feedback && "pt-9",
+            "max-h-48 min-h-[52px] px-4 py-3",
+            feedback && "pt-8",
             isEnhanceAnimating && "transition-all duration-500",
           )}
           ref={inputRef}
@@ -212,7 +212,7 @@ export function InputBox({
           onChange={setCurrentPrompt}
         />
       </div>
-      <div className="flex items-center px-4 py-2">
+      <div className="flex items-center px-4 pb-3 pt-2">
         <div className="flex grow gap-2">
           {config?.models.reasoning?.[0] && (
             <Tooltip

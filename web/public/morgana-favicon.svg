@@ -1,0 +1,16 @@
+<svg width=\"256\" height=\"256\" viewBox=\"0 0 256 256\" xmlns=\"http://www.w3.org/2000/svg\">
+  <defs>
+    <linearGradient id=\"morgana-gradient\" x1=\"0%\" y1=\"0%\" x2=\"100%\" y2=\"100%\">
+      <stop offset=\"0%\" stop-color=\"#6366F1\" />
+      <stop offset=\"55%\" stop-color=\"#8B5CF6\" />
+      <stop offset=\"100%\" stop-color=\"#EC4899\" />
+    </linearGradient>
+    <radialGradient id=\"morgana-highlight\" cx=\"30%\" cy=\"20%\" r=\"65%\">
+      <stop offset=\"0%\" stop-color=\"rgba(255,255,255,0.7)\" />
+      <stop offset=\"60%\" stop-color=\"rgba(255,255,255,0.0)\" />
+    </radialGradient>
+  </defs>
+  <rect width=\"256\" height=\"256\" rx=\"72\" fill=\"url(#morgana-gradient)\" />
+  <rect width=\"256\" height=\"256\" rx=\"72\" fill=\"url(#morgana-highlight)\" />
+  <path d=\"M72 184c0 6.627 5.373 12 12 12h28c6.627 0 12-5.373 12-12v-32h24v32c0 6.627 5.373 12 12 12h28c6.627 0 12-5.373 12-12v-58.343l11.586 10.324c4.934 4.397 12.59 3.915 16.987-.999 4.398-4.914 3.915-12.59-.999-16.988l-94-84a12 12 0 0 0-15.988 0l-94 84c-4.913 4.399-5.396 12.074-.998 16.988 4.398 4.914 12.073 5.396 16.987.999L72 125.657V184z\" fill=\"#FFFFFF\" fill-opacity=\"0.92\" />
+</svg>

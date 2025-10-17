@@ -85,21 +85,28 @@ export function MessagesBlock({ className }: { className?: string }) {
     setFastForwarding(!fastForwarding);
     fastForwardReplay(!fastForwarding);
   }, [fastForwarding]);
+  const showStarters = !isReplay && messageCount === 0;
+
   return (
-    <div className={cn("flex h-full flex-col", className)}>
-      <MessageListView
-        className="flex flex-grow"
-        onFeedback={handleFeedback}
-        onSendMessage={handleSend}
-      />
+    <div
+      className={cn(
+        "flex h-full flex-col overflow-hidden rounded-[28px] border border-border/50 bg-background/80 px-4 pb-4 pt-3 shadow-[0_40px_120px_-70px_rgba(15,23,42,0.55)] backdrop-blur-xl",
+        className,
+      )}
+    >
+      {showStarters ? (
+        <div className="flex flex-grow items-start justify-center overflow-y-auto px-1 pb-4 pt-1 sm:px-4">
+          <ConversationStarter className="w-full" onSend={handleSend} />
+        </div>
+      ) : (
+        <MessageListView
+          className="flex flex-grow"
+          onFeedback={handleFeedback}
+          onSendMessage={handleSend}
+        />
+      )}
       {!isReplay ? (
-        <div className="relative flex h-42 shrink-0 pb-4">
-          {!responding && messageCount === 0 && (
-            <ConversationStarter
-              className="absolute top-[-218px] left-0"
-              onSend={handleSend}
-            />
-          )}
+        <div className="relative mt-3 flex shrink-0">
           <InputBox
             className="h-full w-full"
             responding={responding}
