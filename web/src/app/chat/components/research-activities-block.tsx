@@ -72,8 +72,22 @@ export function ResearchActivitiesBlock({
 
 function ActivityMessage({ messageId }: { messageId: string }) {
   const message = useMessage(messageId);
-  if (message?.agent && message.content) {
-    if (message.agent !== "reporter" && message.agent !== "planner") {
+  if (message?.agent) {
+    if (message.agent === "researcher" && message.isStreaming) {
+      return (
+        <div className="px-4 py-2">
+          <RainbowText animated>Researching…</RainbowText>
+        </div>
+      );
+    }
+    if (message.agent === "researcher") {
+      return null;
+    }
+    if (
+      message.content &&
+      message.agent !== "reporter" &&
+      message.agent !== "planner"
+    ) {
       const raw =
         typeof message.content === "string"
           ? message.content
@@ -105,6 +119,14 @@ function ActivityMessage({ messageId }: { messageId: string }) {
         .join("\n")
         .trim();
       if (!contentString) {
+        // Show a lightweight placeholder while internal operations are filtered
+        if (message.isStreaming) {
+          return (
+            <div className="px-4 py-2">
+              <RainbowText animated>Researching…</RainbowText>
+            </div>
+          );
+        }
         return null;
       }
       return (
@@ -122,7 +144,8 @@ function ActivityMessage({ messageId }: { messageId: string }) {
 function ActivityListItem({ messageId }: { messageId: string }) {
   const message = useMessage(messageId);
   if (message) {
-    if (!message.isStreaming && message.toolCalls?.length) {
+    // Render allowed tools as soon as we see tool calls, even while streaming
+    if (message.toolCalls?.length) {
       const allowedTools = new Set([
         "web_search",
         "crawl_tool",
@@ -147,6 +170,14 @@ function ActivityListItem({ messageId }: { messageId: string }) {
         }
       }
     }
+    // Fallback: if no allowed tool rendered and message is streaming, show a subtle indicator
+    if (message.isStreaming) {
+      return (
+        <div className="px-4 py-2">
+          <RainbowText animated>Working…</RainbowText>
+        </div>
+      );
+    }
   }
   return null;
 }
@@ -165,11 +196,46 @@ type SearchResult =
     image_description: string;
   };
 
+type NormalizedToolArgs = Record<string, unknown> & { __raw?: string };
+
+function normalizeToolArgs(args: ToolCallRuntime["args"]): NormalizedToolArgs {
+  if (typeof args === "string") {
+    const raw = args.trim();
+    if (!raw) {
+      return { __raw: "" };
+    }
+    try {
+      const parsed = JSON.parse(raw);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        return { ...(parsed as Record<string, unknown>), __raw: raw };
+      }
+    } catch {
+      // fall through to returning raw payload
+    }
+    return { __raw: raw };
+  }
+  return { ...(args ?? {}) };
+}
+
 function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
   const t = useTranslations("chat.research");
   const searching = useMemo(() => {
     return toolCall.result === undefined;
   }, [toolCall.result]);
+  const normalizedArgs = useMemo(
+    () => normalizeToolArgs(toolCall.args),
+    [toolCall.args],
+  );
+  const query = useMemo(() => {
+    const value = normalizedArgs["query"];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+    if (typeof normalizedArgs.__raw === "string" && normalizedArgs.__raw.trim()) {
+      return normalizedArgs.__raw.trim();
+    }
+    return "";
+  }, [normalizedArgs]);
   const searchResults = useMemo<SearchResult[]>(() => {
     let results: SearchResult[] | undefined = undefined;
     try {
@@ -206,7 +272,7 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
           <Search size={16} className={"mr-2"} />
           <span>{t("searchingFor")}&nbsp;</span>
           <span className="max-w-[500px] overflow-hidden text-ellipsis whitespace-nowrap">
-            {(toolCall.args as { query: string }).query}
+            {query}
           </span>
         </RainbowText>
       </div>
@@ -284,10 +350,20 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
 
 function CrawlToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
   const t = useTranslations("chat.research");
-  const url = useMemo(
-    () => (toolCall.args as { url: string }).url,
+  const normalizedArgs = useMemo(
+    () => normalizeToolArgs(toolCall.args),
     [toolCall.args],
   );
+  const url = useMemo(() => {
+    const value = normalizedArgs["url"];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+    if (typeof normalizedArgs.__raw === "string" && normalizedArgs.__raw.trim()) {
+      return normalizedArgs.__raw.trim();
+    }
+    return "";
+  }, [normalizedArgs]);
   const title = useMemo(() => __pageCache.get(url), [url]);
   return (
     <section className="mt-4 pl-4">
@@ -329,6 +405,20 @@ function RetrieverToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
   const searching = useMemo(() => {
     return toolCall.result === undefined;
   }, [toolCall.result]);
+  const normalizedArgs = useMemo(
+    () => normalizeToolArgs(toolCall.args),
+    [toolCall.args],
+  );
+  const keywords = useMemo(() => {
+    const value = normalizedArgs["keywords"];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+    if (typeof normalizedArgs.__raw === "string" && normalizedArgs.__raw.trim()) {
+      return normalizedArgs.__raw.trim();
+    }
+    return "";
+  }, [normalizedArgs]);
   const documents = useMemo<
     Array<{ id: string; title: string; content: string }>
   >(() => {
@@ -341,7 +431,7 @@ function RetrieverToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
           <Search size={16} className={"mr-2"} />
           <span>{t("retrievingDocuments")}&nbsp;</span>
           <span className="max-w-[500px] overflow-hidden text-ellipsis whitespace-nowrap">
-            {(toolCall.args as { keywords: string }).keywords}
+            {keywords}
           </span>
         </RainbowText>
       </div>
@@ -385,9 +475,20 @@ function RetrieverToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
 
 function PythonToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
   const t = useTranslations("chat.research");
+  const normalizedArgs = useMemo(
+    () => normalizeToolArgs(toolCall.args),
+    [toolCall.args],
+  );
   const code = useMemo<string | undefined>(() => {
-    return (toolCall.args as { code?: string }).code;
-  }, [toolCall.args]);
+    const value = normalizedArgs["code"];
+    if (typeof value === "string" && value.length) {
+      return value;
+    }
+    if (typeof normalizedArgs.__raw === "string" && normalizedArgs.__raw.length) {
+      return normalizedArgs.__raw;
+    }
+    return undefined;
+  }, [normalizedArgs]);
   const { resolvedTheme } = useTheme();
   return (
     <section className="mt-4 pl-4">

@@ -34,7 +34,7 @@ export interface Option {
 export interface ToolCallRuntime {
   id: string;
   name: string;
-  args: Record<string, unknown>;
+  args: Record<string, unknown> | string;
   argsChunks?: string[];
   result?: string;
 }

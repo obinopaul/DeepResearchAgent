@@ -4,6 +4,7 @@
 import json
 import logging
 import os
+import os
 from typing import Annotated, Literal
 from pydantic import ValidationError
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -508,6 +509,28 @@ async def _execute_deepagent_step(
 
     logger.info(f"Executing step: {current_step.title}, agent: {agent_name}")
 
+    # Safety guard: per-step attempts cap
+    step_attempts = state.get("step_attempts", {}) or {}
+    title_key = str(current_step.title)
+    try:
+        max_attempts = int(os.getenv("RESEARCH_STEP_MAX_ATTEMPTS", "3"))
+        if max_attempts <= 0:
+            max_attempts = 3
+    except Exception:
+        max_attempts = 3
+    attempts = int(step_attempts.get(title_key, 0))
+    if attempts >= max_attempts:
+        logger.warning(
+            f"Max attempts reached for step '{title_key}' ({attempts} >= {max_attempts}). Routing to planner."
+        )
+        return Command(
+            update={
+                "step_attempts": step_attempts,
+                "current_plan": current_plan,
+            },
+            goto="planner",
+        )
+
     # Format completed steps information
     completed_steps_info = ""
     if completed_steps:
@@ -576,18 +599,47 @@ async def _execute_deepagent_step(
     logger.info(f"Executing step '{current_step.title}' with deep_agent '{agent_name}'...")
     logger.debug(f"Agent input: {agent_input}")
     
-    # Note: The specific recursion limit from the old function is removed, as you
-    # correctly pointed out it's not needed for the self-contained deep_agent.
+    # Note: The specific recursion limit from the old function is removed
+    # Increment attempt before invoking
+    step_attempts[title_key] = attempts + 1
     result = await agent.ainvoke(input=agent_input)
 
-    # response_content = result["messages"][-1].content
-    response_content = result['files']['final_report.md']
-    logger.debug(f"{agent_name.capitalize()} full response: {response_content}")
+    # Extract final report defensively from deep agent output
+    response_content = None
+    try:
+        if isinstance(result, dict):
+            files = result.get("files") if isinstance(result.get("files"), dict) else None
+            if files and isinstance(files.get("final_report.md"), str):
+                response_content = files["final_report.md"]
+            if response_content is None and isinstance(result.get("final_report"), str):
+                response_content = result.get("final_report")
+            if response_content is None and isinstance(result.get("messages"), list) and result["messages"]:
+                last = result["messages"][-1]
+                try:
+                    content_attr = getattr(last, "content", None)
+                    if isinstance(content_attr, str):
+                        response_content = content_attr
+                except Exception:
+                    pass
+        if response_content is None:
+            response_content = str(result)
+    except Exception as e:
+        logger.warning(f"Failed to parse deep agent result; falling back to string: {e}")
+        response_content = str(result)
+
+    logger.debug(f"{agent_name.capitalize()} full response (extracted): {response_content}")
 
     # Update the step with the execution result
     current_step.execution_res = response_content
     logger.info(f"Step '{current_step.title}' execution completed by {agent_name}.")
 
+
+    # Clear attempts for this step now that it is completed
+    if title_key in step_attempts:
+        try:
+            del step_attempts[title_key]
+        except Exception:
+            pass
 
     return Command(
         update={
@@ -601,6 +653,7 @@ async def _execute_deepagent_step(
             "final_report": response_content,
             # Persist the updated plan so routing logic sees completed steps
             "current_plan": current_plan,
+            "step_attempts": step_attempts,
         },
         goto="research_team",
     )
@@ -630,6 +683,28 @@ async def _execute_agent_step(
         return Command(goto="research_team")
 
     logger.info(f"Executing step: {current_step.title}, agent: {agent_name}")
+
+    # Safety guard: per-step attempts cap
+    step_attempts = state.get("step_attempts", {}) or {}
+    title_key = str(current_step.title)
+    try:
+        max_attempts = int(os.getenv("RESEARCH_STEP_MAX_ATTEMPTS", "3"))
+        if max_attempts <= 0:
+            max_attempts = 3
+    except Exception:
+        max_attempts = 3
+    attempts = int(step_attempts.get(title_key, 0))
+    if attempts >= max_attempts:
+        logger.warning(
+            f"Max attempts reached for step '{title_key}' ({attempts} >= {max_attempts}). Routing to planner."
+        )
+        return Command(
+            update={
+                "step_attempts": step_attempts,
+                "current_plan": current_plan,
+            },
+            goto="planner",
+        )
 
     # Format completed steps information
     completed_steps_info = ""
@@ -694,6 +769,8 @@ async def _execute_agent_step(
         recursion_limit = default_recursion_limit
 
     logger.info(f"Agent input: {agent_input}")
+    # Increment attempt before invoking
+    step_attempts[title_key] = attempts + 1
     result = await agent.ainvoke(
         input=agent_input, config={"recursion_limit": recursion_limit}
     )
@@ -706,6 +783,13 @@ async def _execute_agent_step(
     current_step.execution_res = response_content
     logger.info(f"Step '{current_step.title}' execution completed by {agent_name}")
 
+    # Clear attempts for this step now that it is completed
+    if title_key in step_attempts:
+        try:
+            del step_attempts[title_key]
+        except Exception:
+            pass
+
     return Command(
         update={
             "messages": [
@@ -715,6 +799,7 @@ async def _execute_agent_step(
                 )
             ],
             "observations": observations + [response_content],
+            "step_attempts": step_attempts,
             # Persist the updated plan so routing logic sees completed steps
             "current_plan": current_plan,
         },

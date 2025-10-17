@@ -25,6 +25,10 @@ def continue_to_running_research_team(state: State):
         return "planner"
 
     if all(step.execution_res for step in current_plan.steps):
+        # If we already have a final report, proceed directly to reporter
+        final_report = state.get("final_report") or ""
+        if isinstance(final_report, str) and final_report.strip() != "":
+            return "reporter"
         return "planner"
 
     # Find first incomplete step
@@ -60,7 +64,7 @@ def _build_base_graph():
     builder.add_conditional_edges(
         "research_team",
         continue_to_running_research_team,
-        ["planner", "researcher", "coder"],
+        ["planner", "researcher", "coder", "reporter"],
     )
     builder.add_edge("reporter", END)
     return builder

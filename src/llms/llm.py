@@ -104,7 +104,7 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
         model_name = (
             merged_conf.get("model")
             or merged_conf.get("model_name")
-            or "gpt-4.1-2025-04-14"
+            or "gpt-4.1-nano"
         )
         try:
             max_tokens = int(merged_conf.get("max_tokens", 32000))

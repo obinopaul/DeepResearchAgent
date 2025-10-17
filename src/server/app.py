@@ -1,6 +1,12 @@
 # Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
 # SPDX-License-Identifier: MIT
+import os
+from dotenv import load_dotenv
 
+load_dotenv()
+
+
+# ----------------------------
 import base64
 import asyncio
 import json
@@ -51,7 +57,11 @@ from src.server.rag_request import (
 from src.tools import VolcengineTTS
 from src.utils.json_utils import sanitize_args
 
+DEBUG_SSE = os.getenv("DEBUG_SSE", "0") == "1"
+DEBUG_RESEARCH_FILTER = os.getenv("DEBUG_RESEARCH_FILTER", "0") == "1"
+
 logger = logging.getLogger(__name__)
+logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO))
 
 INTERNAL_SERVER_ERROR_DETAIL = "Internal Server Error"
 
@@ -232,11 +242,18 @@ async def _process_message_chunk(
     allowed_tool_ids: set[str],
 ):
     """Process a single message chunk and yield appropriate events."""
+    
     agent_name = _get_agent_name(agent, message_metadata)
     event_stream_message = _create_event_stream_message(
         message_chunk, message_metadata, thread_id, agent_name
     )
 
+    if DEBUG_RESEARCH_FILTER and agent_name == "researcher":
+        try:
+            cls_name = message_chunk.__class__.__name__
+        except Exception:
+            cls_name = str(type(message_chunk))
+        logger.info(f"[FILTER] agent=researcher chunk={cls_name}")
     if isinstance(message_chunk, ToolMessage):
         # Tool Message - Return the result of the tool call
         event_stream_message["tool_call_id"] = message_chunk.tool_call_id
@@ -307,6 +324,8 @@ async def _stream_graph_events(
             async for event in _process_message_chunk(
                 message_chunk, message_metadata, thread_id, agent, allowed_tool_ids
             ):
+                if DEBUG_SSE: logger.info(f"[SSE] out type={event.split('\n', 1)[0]} thread={thread_id}")
+                
                 yield event
     except Exception as e:
         logger.exception("Error during graph execution")

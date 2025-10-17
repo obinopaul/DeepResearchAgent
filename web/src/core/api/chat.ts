@@ -41,10 +41,10 @@ export async function* chatStream(
     env.NEXT_PUBLIC_STATIC_WEBSITE_ONLY ||
     location.search.includes("mock") ||
     location.search.includes("replay=")
-  ) 
+  )
     return yield* chatReplayStream(userMessage, params, options);
-  
-  try{
+
+  try {
     const stream = fetchStream(resolveServiceURL("chat/stream"), {
       body: JSON.stringify({
         messages: [{ role: "user", content: userMessage }],
@@ -52,7 +52,7 @@ export async function* chatStream(
       }),
       signal: options.abortSignal,
     });
-    
+
     for await (const event of stream) {
       // Debug: log incoming SSE event types
       try {
@@ -63,7 +63,7 @@ export async function* chatStream(
         data: JSON.parse(event.data),
       } as ChatEvent;
     }
-  }catch(e){
+  } catch (e) {
     console.error(e);
   }
 }

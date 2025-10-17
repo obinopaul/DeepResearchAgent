@@ -169,7 +169,10 @@ export async function sendMessage(
         // For high-frequency message_chunk events, throttle store updates
         if (type === "message_chunk") {
           const now = Date.now();
-          if (now - lastFlushTs < 50) {
+          const hasFinished =
+            message.finishReason != null ||
+            event.data.finish_reason != null;
+          if (!hasFinished && now - lastFlushTs < 50) {
             // Skip this immediate update; a later chunk will flush
           } else {
             lastFlushTs = now;
@@ -189,7 +192,10 @@ export async function sendMessage(
         } catch {}
       }
     }
-  } catch {
+  } catch (error) {
+    try {
+      console.error("[store.sendMessage] stream error", error);
+    } catch {}
     toast("An error occurred while generating the response. Please try again.");
     // Update message status.
     // TODO: const isAborted = (error as Error).name === "AbortError";
