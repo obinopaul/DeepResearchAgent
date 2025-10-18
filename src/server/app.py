@@ -57,11 +57,11 @@ from src.server.rag_request import (
 from src.tools import VolcengineTTS
 from src.utils.json_utils import sanitize_args
 
-DEBUG_SSE = os.getenv("DEBUG_SSE", "0") == "1"
-DEBUG_RESEARCH_FILTER = os.getenv("DEBUG_RESEARCH_FILTER", "0") == "1"
+# DEBUG_SSE = os.getenv("DEBUG_SSE", "0") == "1"
+# DEBUG_RESEARCH_FILTER = os.getenv("DEBUG_RESEARCH_FILTER", "0") == "1"
 
 logger = logging.getLogger(__name__)
-logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO))
+# logging.basicConfig(level=getattr(logging, os.getenv("LOG_LEVEL", "INFO").upper(), logging.INFO))
 
 INTERNAL_SERVER_ERROR_DETAIL = "Internal Server Error"
 
@@ -248,12 +248,12 @@ async def _process_message_chunk(
         message_chunk, message_metadata, thread_id, agent_name
     )
 
-    if DEBUG_RESEARCH_FILTER and agent_name == "researcher":
-        try:
-            cls_name = message_chunk.__class__.__name__
-        except Exception:
-            cls_name = str(type(message_chunk))
-        logger.info(f"[FILTER] agent=researcher chunk={cls_name}")
+    # if DEBUG_RESEARCH_FILTER and agent_name == "researcher":
+    #     try:
+    #         cls_name = message_chunk.__class__.__name__
+    #     except Exception:
+    #         cls_name = str(type(message_chunk))
+    #     logger.info(f"[FILTER] agent=researcher chunk={cls_name}")
     if isinstance(message_chunk, ToolMessage):
         # Tool Message - Return the result of the tool call
         event_stream_message["tool_call_id"] = message_chunk.tool_call_id
@@ -305,6 +305,7 @@ async def _stream_graph_events(
     try:
         # Track which tool_call_ids are allowed to stream for researcher agent
         allowed_tool_ids: set[str] = set()
+        emitted_report_messages: set[str] = set()
         async for agent, _, event_data in graph_instance.astream(
             workflow_input,
             config=workflow_config,
@@ -315,6 +316,42 @@ async def _stream_graph_events(
                 if "__interrupt__" in event_data:
                     logger.info("Emitting interrupt event and pausing for HITL")
                     yield _create_interrupt_event(thread_id, event_data)
+                    continue
+
+                reporter_update = event_data.get("reporter")
+                if isinstance(reporter_update, dict):
+                    final_report_payload = reporter_update.get("final_report")
+                    if isinstance(final_report_payload, (list, tuple)):
+                        final_report_content = next(
+                            (
+                                item
+                                for item in final_report_payload
+                                if isinstance(item, str) and item.strip()
+                            ),
+                            None,
+                        )
+                    elif isinstance(final_report_payload, str):
+                        final_report_content = final_report_payload
+                    else:
+                        final_report_content = None
+
+                    if isinstance(final_report_content, str) and final_report_content.strip():
+                        message_id = str(
+                            reporter_update.get("message_id") or f"reporter-final-{uuid4().hex}"
+                        )
+                        if message_id not in emitted_report_messages:
+                            emitted_report_messages.add(message_id)
+                            yield _make_event(
+                                "message_chunk",
+                                {
+                                    "thread_id": thread_id,
+                                    "id": message_id,
+                                    "agent": "reporter",
+                                    "role": "assistant",
+                                    "content": final_report_content,
+                                    "finish_reason": "stop",
+                                },
+                            )
                 continue
 
             message_chunk, message_metadata = cast(
@@ -324,7 +361,7 @@ async def _stream_graph_events(
             async for event in _process_message_chunk(
                 message_chunk, message_metadata, thread_id, agent, allowed_tool_ids
             ):
-                if DEBUG_SSE: logger.info(f"[SSE] out type={event.split('\n', 1)[0]} thread={thread_id}")
+                # if DEBUG_SSE: logger.info(f"[SSE] out type={event.split('\n', 1)[0]} thread={thread_id}")
                 
                 yield event
     except Exception as e:
@@ -362,6 +399,7 @@ async def _astream_workflow_generator(
         "messages": messages,
         "plan_iterations": 0,
         "final_report": "",
+        "researcher_reports": "",
         "current_plan": None,
         "observations": [],
         "auto_accepted_plan": auto_accepted_plan,

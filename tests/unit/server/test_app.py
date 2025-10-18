@@ -618,6 +618,39 @@ class TestAstreamWorkflowGenerator:
 
     @pytest.mark.asyncio
     @patch("src.server.app.graph")
+    async def test_astream_workflow_generator_final_report_update(self, mock_graph):
+        async def mock_astream(*args, **kwargs):
+            yield ((), "updates", {"reporter": {"final_report": "Completed report"}})
+
+        mock_graph.astream = mock_astream
+
+        generator = _astream_workflow_generator(
+            messages=[],
+            thread_id="test_thread",
+            resources=[],
+            max_plan_iterations=3,
+            max_step_num=10,
+            max_search_results=5,
+            auto_accepted_plan=True,
+            interrupt_feedback="",
+            mcp_settings={},
+            enable_background_investigation=False,
+            report_style=ReportStyle.ACADEMIC,
+            enable_deep_thinking=False,
+        )
+
+        events = []
+        async for event in generator:
+            events.append(event)
+
+        assert len(events) == 1
+        assert "event: message_chunk" in events[0]
+        assert '"agent": "reporter"' in events[0]
+        assert '"finish_reason": "stop"' in events[0]
+        assert "Completed report" in events[0]
+
+    @pytest.mark.asyncio
+    @patch("src.server.app.graph")
     async def test_astream_workflow_generator_tool_message(self, mock_graph):
         # Mock tool message
         mock_tool_message = ToolMessage(content="Tool result", tool_call_id="tool_123")

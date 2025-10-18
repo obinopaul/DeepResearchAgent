@@ -7,7 +7,7 @@ import { LRUCache } from "lru-cache";
 import { BookOpenText, FileText, PencilRuler, Search } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useTheme } from "next-themes";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import SyntaxHighlighter from "react-syntax-highlighter";
 import { docco } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { dark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -219,9 +219,7 @@ function normalizeToolArgs(args: ToolCallRuntime["args"]): NormalizedToolArgs {
 
 function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
   const t = useTranslations("chat.research");
-  const searching = useMemo(() => {
-    return toolCall.result === undefined;
-  }, [toolCall.result]);
+  const searching = toolCall.result === undefined;
   const normalizedArgs = useMemo(
     () => normalizeToolArgs(toolCall.args),
     [toolCall.args],
@@ -236,30 +234,38 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
     }
     return "";
   }, [normalizedArgs]);
-  const searchResults = useMemo<SearchResult[]>(() => {
-    let results: SearchResult[] | undefined = undefined;
+  const [searchResults, setSearchResults] = useState<SearchResult[] | undefined>();
+
+  useEffect(() => {
+    if (toolCall.result === undefined) {
+      setSearchResults(undefined);
+      return;
+    }
+
+    if (typeof toolCall.result !== "string" || toolCall.result.trim() === "") {
+      return;
+    }
+
     try {
-      results = toolCall.result ? parseJSON(toolCall.result, []) : undefined;
+      const parsed = parseJSON(toolCall.result, undefined);
+      if (Array.isArray(parsed)) {
+        parsed.forEach((result) => {
+          if (result?.type === "page" && typeof result.url === "string") {
+            __pageCache.set(result.url, result.title ?? result.url);
+          }
+        });
+        setSearchResults(parsed);
+      }
     } catch {
-      results = undefined;
+      // Keep previous results if parsing fails (e.g., non-JSON status message)
     }
-    if (Array.isArray(results)) {
-      results.forEach((result) => {
-        if (result.type === "page") {
-          __pageCache.set(result.url, result.title);
-        }
-      });
-    } else {
-      results = [];
-    }
-    return results;
   }, [toolCall.result]);
   const pageResults = useMemo(
-    () => searchResults?.filter((result) => result.type === "page"),
+    () => searchResults?.filter((result) => result.type === "page") ?? [],
     [searchResults],
   );
   const imageResults = useMemo(
-    () => searchResults?.filter((result) => result.type === "image"),
+    () => searchResults?.filter((result) => result.type === "image") ?? [],
     [searchResults],
   );
   return (

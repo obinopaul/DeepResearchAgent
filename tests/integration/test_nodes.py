@@ -789,6 +789,33 @@ def test_reporter_node_basic(
         mock_llm.invoke.assert_called()
 
 
+def test_reporter_node_uses_researcher_reports(
+    patch_config_from_runnable_config_reporter,
+    patch_apply_prompt_template_reporter,
+    patch_human_message,
+    patch_logger_reporter,
+):
+    Plan = namedtuple("Plan", ["title", "thought"])
+    state = {
+        "current_plan": Plan(title="Test Title", thought="Test Thought"),
+        "locale": "en-US",
+        "observations": [],
+        "researcher_reports": "Precompiled Research Report",
+    }
+
+    with (
+        patch("src.graph.nodes.AGENT_LLM_MAP", {"reporter": "basic"}),
+        patch("src.graph.nodes.get_llm_by_type") as mock_get_llm,
+    ):
+        result = reporter_node(state, MagicMock())
+
+    assert isinstance(result, dict)
+    assert result["final_report"] == "Precompiled Research Report"
+    assert result["researcher_reports"] == ""
+    mock_get_llm.assert_not_called()
+    patch_apply_prompt_template_reporter.assert_not_called()
+
+
 def test_reporter_node_with_observations(
     mock_state_reporter_with_observations,
     patch_config_from_runnable_config_reporter,

@@ -75,6 +75,7 @@ def test_state_initialization():
     assert State.observations == []
     assert State.plan_iterations == 0
     assert State.current_plan is None
+    assert State.researcher_reports == ""
     assert State.final_report == ""
     assert State.auto_accepted_plan is False
     assert State.enable_background_investigation is True
@@ -113,6 +114,7 @@ def test_state_with_custom_values():
         observations=["Observation 1"],
         plan_iterations=2,
         current_plan=test_plan,
+        researcher_reports="Research summary",
         final_report="Test report",
         auto_accepted_plan=True,
         enable_background_investigation=False,
@@ -127,6 +129,7 @@ def test_state_with_custom_values():
     assert state["current_plan"].thought == "Test thought"
     assert len(state["current_plan"].steps) == 1
     assert state["current_plan"].steps[0].title == "Test Step"
+    assert state["researcher_reports"] == "Research summary"
     assert state["final_report"] == "Test report"
     assert state["auto_accepted_plan"] is True
     assert state["enable_background_investigation"] is False

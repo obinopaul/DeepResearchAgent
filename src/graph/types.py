@@ -18,6 +18,7 @@ class State(MessagesState):
     resources: list[Resource] = []
     plan_iterations: int = 0
     current_plan: Plan | str = None
+    researcher_reports: str = ""
     final_report: str = ""
     # Track per-step attempt counts to guard against infinite retries
     step_attempts: dict[str, int] = {}

@@ -25,7 +25,10 @@ def continue_to_running_research_team(state: State):
         return "planner"
 
     if all(step.execution_res for step in current_plan.steps):
-        # If we already have a final report, proceed directly to reporter
+        # If we already have a final or researcher report, proceed directly to reporter
+        researcher_reports = state.get("researcher_reports") or ""
+        if isinstance(researcher_reports, str) and researcher_reports.strip() != "":
+            return "reporter"
         final_report = state.get("final_report") or ""
         if isinstance(final_report, str) and final_report.strip() != "":
             return "reporter"

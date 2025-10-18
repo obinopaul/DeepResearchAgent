@@ -4,7 +4,6 @@
 import json
 import logging
 import os
-import os
 from typing import Annotated, Literal
 from pydantic import ValidationError
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
@@ -434,6 +433,15 @@ def reporter_node(state: State, config: RunnableConfig):
     """Reporter node that write a final report."""
     logger.info("Reporter write final report")
     configurable = Configuration.from_runnable_config(config)
+
+    researcher_reports = state.get("researcher_reports", "")
+    if isinstance(researcher_reports, str) and researcher_reports.strip():
+        logger.info("Reporter received researcher reports; returning them as final report.")
+        return {
+            "final_report": researcher_reports,
+            "researcher_reports": "",
+        }
+
     current_plan = state.get("current_plan")
     input_ = {
         "messages": [
@@ -606,26 +614,70 @@ async def _execute_deepagent_step(
 
     # Extract final report defensively from deep agent output
     response_content = None
+    has_final_report_payload = False
     try:
         if isinstance(result, dict):
-            files = result.get("files") if isinstance(result.get("files"), dict) else None
-            if files and isinstance(files.get("final_report.md"), str):
-                response_content = files["final_report.md"]
-            if response_content is None and isinstance(result.get("final_report"), str):
-                response_content = result.get("final_report")
+            files_obj = result.get("files")
+            file_report = None
+            if isinstance(files_obj, dict):
+                file_report = files_obj.get("final_report.md")
+            elif isinstance(files_obj, list):
+                for item in files_obj:
+                    if isinstance(item, dict) and item.get("name") == "final_report.md":
+                        file_report = item
+                        break
+
+            if file_report is not None:
+                if isinstance(file_report, str):
+                    candidate = file_report
+                elif isinstance(file_report, dict):
+                    candidate = (
+                        file_report.get("content")
+                        or file_report.get("data")
+                        or file_report.get("text")
+                        or file_report.get("value")
+                    )
+                else:
+                    candidate = None
+
+                if isinstance(candidate, str) and candidate.strip():
+                    response_content = candidate
+                    has_final_report_payload = True
+
+            if response_content is None:
+                raw_final_report = result.get("final_report")
+                if isinstance(raw_final_report, str) and raw_final_report.strip():
+                    response_content = raw_final_report
+                    has_final_report_payload = True
+                elif isinstance(raw_final_report, dict):
+                    candidate = (
+                        raw_final_report.get("content")
+                        or raw_final_report.get("data")
+                        or raw_final_report.get("text")
+                        or raw_final_report.get("value")
+                    )
+                    if isinstance(candidate, str) and candidate.strip():
+                        response_content = candidate
+                        has_final_report_payload = True
+
             if response_content is None and isinstance(result.get("messages"), list) and result["messages"]:
                 last = result["messages"][-1]
                 try:
                     content_attr = getattr(last, "content", None)
                     if isinstance(content_attr, str):
                         response_content = content_attr
+                        has_final_report_payload = bool(response_content.strip())
                 except Exception:
                     pass
+
         if response_content is None:
             response_content = str(result)
     except Exception as e:
         logger.warning(f"Failed to parse deep agent result; falling back to string: {e}")
         response_content = str(result)
+    finally:
+        if response_content is None:
+            response_content = ""
 
     logger.debug(f"{agent_name.capitalize()} full response (extracted): {response_content}")
 
@@ -641,22 +693,29 @@ async def _execute_deepagent_step(
         except Exception:
             pass
 
-    return Command(
-        update={
-            "messages": [
-                HumanMessage(
-                    content=response_content,
-                    name=agent_name,
-                )
-            ],
-            "observations": observations + [response_content],
-            "final_report": response_content,
-            # Persist the updated plan so routing logic sees completed steps
-            "current_plan": current_plan,
-            "step_attempts": step_attempts,
-        },
-        goto="research_team",
-    )
+    update_payload = {
+        "messages": [
+            HumanMessage(
+                content=response_content,
+                name=agent_name,
+            )
+        ],
+        "observations": observations + [response_content],
+        # Persist the updated plan so routing logic sees completed steps
+        "current_plan": current_plan,
+        "step_attempts": step_attempts,
+    }
+    if agent_name == "researcher":
+        if has_final_report_payload:
+            update_payload["researcher_reports"] = response_content
+        else:
+            update_payload["researcher_reports"] = state.get("researcher_reports", "")
+        update_payload["final_report"] = state.get("final_report", "")
+    else:
+        update_payload["researcher_reports"] = state.get("researcher_reports", "")
+        update_payload["final_report"] = state.get("final_report", "")
+
+    return Command(update=update_payload, goto="research_team")
 
 
 
