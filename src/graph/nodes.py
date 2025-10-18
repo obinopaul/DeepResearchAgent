@@ -123,7 +123,19 @@ def planner_node(
     # 1. Iteration Check: Prevent infinite loops by enforcing a maximum number of planning attempts.
     plan_iterations = state["plan_iterations"] if state.get("plan_iterations", 0) else 0
     if plan_iterations >= configurable.max_plan_iterations:
-        return Command(goto="reporter")
+        logger.info(
+            "Planner reached max iterations (%s). Using available plan to continue if possible.",
+            configurable.max_plan_iterations,
+        )
+        existing_plan = state.get("current_plan")
+        has_pending_plan = False
+        if isinstance(existing_plan, Plan):
+            has_pending_plan = bool(existing_plan.steps)
+        elif isinstance(existing_plan, dict):
+            has_pending_plan = bool(existing_plan.get("steps"))
+
+        goto_target = "research_team" if has_pending_plan else "reporter"
+        return Command(goto=goto_target)
 
     # 2. Message Preparation: Assemble the prompt with all necessary context.
     messages = apply_prompt_template("planner", state, configurable)
@@ -156,11 +168,18 @@ def planner_node(
         existing_plan = None
 
     # 4. Core Logic & Error Handling: Execute the planning call within a try-except block.
+    plan_has_steps = False
     try:
         new_plan: Plan = build_plan_with_trustcall(messages, config, existing=existing_plan)
-        logger.info("Successfully generated and validated a new plan.")
-        # Serialize the validated plan for logging and state update
+        plan_has_steps = bool(new_plan.steps)
+        if plan_has_steps and getattr(new_plan, "has_enough_context", False):
+            logger.info(
+                "Generated plan includes actionable steps; overriding has_enough_context to False to ensure deep research."
+            )
+            new_plan = new_plan.model_copy(update={"has_enough_context": False})
+
         full_response_content = new_plan.model_dump_json(indent=2)
+        logger.info("Successfully generated and validated a new plan.")
         logger.debug(f"Planner response: {full_response_content}")
 
     except Exception as e:
@@ -173,11 +192,19 @@ def planner_node(
     # 5. Context-Aware Routing: Decide the next step based on the LLM's assessment.
     # This check is sourced directly from your original implementation.
     # It assumes the `Plan` model has a boolean field `has_enough_context`.
-    if getattr(new_plan, 'has_enough_context', False):
-        logger.info("Planner determined it has enough context. Routing to reporter.")
+    auto_accept_plan = bool(state.get("auto_accepted_plan", False))
+    if plan_has_steps:
+        goto = "research_team" if auto_accept_plan else "human_feedback"
+        logger.info(
+            "Planner prepared %d step(s). Routing to %s.",
+            len(new_plan.steps),
+            goto,
+        )
+    elif getattr(new_plan, "has_enough_context", False):
+        logger.info("Planner determined it has enough context without steps. Routing to reporter.")
         goto = "reporter"
     else:
-        logger.info("Planner requires additional information. Routing for human feedback.")
+        logger.info("Planner requires additional information but no steps were produced. Routing for human feedback.")
         goto = "human_feedback"
 
     # 6. Update State: Commit the new plan and increment the iteration counter.
@@ -495,7 +522,7 @@ def research_team_node(state: State):
 
 async def _execute_deepagent_step(
     state: State, agent, agent_name: str
-) -> Command[Literal["research_team"]]:
+) -> Command[Literal["research_team", "__end__"]]:
     """Helper function to execute a step using the specified agent."""
     current_plan = state.get("current_plan")
     plan_title = current_plan.title
@@ -513,7 +540,8 @@ async def _execute_deepagent_step(
 
     if not current_step:
         logger.warning("No unexecuted step found in the plan. Proceeding to next phase.")
-        return Command(goto="research_team")
+        goto_target = "__end__" if agent_name == "researcher" else "research_team"
+        return Command(goto=goto_target)
 
     logger.info(f"Executing step: {current_step.title}, agent: {agent_name}")
 
@@ -571,6 +599,20 @@ async def _execute_deepagent_step(
                 )
             )
 
+        # agent_input["messages"].append(
+        #     HumanMessage(
+        #         content=(
+        #             "SYSTEM DIRECTIVE: You must conduct exhaustive, tool-driven research before drafting any findings.\n"
+        #             "- Begin every investigation with several distinct `web_search` calls to surface a broad slate of primary, supporting, and dissenting perspectives. Capture at least 6–8 unique candidate sources spanning multiple domains.\n"
+        #             "- For each promising URL, immediately follow up with `crawl_tool` (or `local_search_tool` when appropriate) to read the underlying content, confirm the link is reachable, and extract detailed evidence. Never cite a source you have not crawled in this session.\n"
+        #             "- Augment shallow search snippets by drilling into company sites, regulatory filings, academic PDFs, and other first-party references using `crawl_tool` so the final report reflects deep, primary research.\n"
+        #             "- Do not rely on memory or previously seen data; collect fresh evidence in this session. Retire any source that errors or proves irrelevant and replace it with a vetted alternative.\n"
+        #             "- Continue researching until you have verified insights from at least 8 trustworthy sources and enough material to sustain a multi-thousand-word, reference-rich report for this plan step. If coverage still feels thin, keep searching."
+        #         ),
+        #         name="system",
+        #     )
+        # )
+
         agent_input["messages"].append(
             HumanMessage(
                 content="IMPORTANT: DO NOT include inline citations in the text. Instead, track all sources and include a References section at the end using link reference format. Include an empty line between each citation for better readability. Use this format for each reference:\n- [Source Title](URL)\n\n- [Another Source](URL)",
@@ -578,31 +620,7 @@ async def _execute_deepagent_step(
             )
         )
 
-    # # Invoke the agent
-    # default_recursion_limit = 25
-    # try:
-    #     env_value_str = os.getenv("AGENT_RECURSION_LIMIT", str(default_recursion_limit))
-    #     parsed_limit = int(env_value_str)
-
-    #     if parsed_limit > 0:
-    #         recursion_limit = parsed_limit
-    #         logger.info(f"Recursion limit set to: {recursion_limit}")
-    #     else:
-    #         logger.warning(
-    #             f"AGENT_RECURSION_LIMIT value '{env_value_str}' (parsed as {parsed_limit}) is not positive. "
-    #             f"Using default value {default_recursion_limit}."
-    #         )
-    #         recursion_limit = default_recursion_limit
-    # except ValueError:
-    #     raw_env_value = os.getenv("AGENT_RECURSION_LIMIT")
-    #     logger.warning(
-    #         f"Invalid AGENT_RECURSION_LIMIT value: '{raw_env_value}'. "
-    #         f"Using default value {default_recursion_limit}."
-    #     )
-    #     recursion_limit = default_recursion_limit
-
-
-    
+   
     # --- 4. Invoke Agent and Process Results ---
     logger.info(f"Executing step '{current_step.title}' with deep_agent '{agent_name}'...")
     logger.debug(f"Agent input: {agent_input}")
@@ -680,6 +698,9 @@ async def _execute_deepagent_step(
             response_content = ""
 
     logger.debug(f"{agent_name.capitalize()} full response (extracted): {response_content}")
+    final_report_ready = has_final_report_payload or (
+        isinstance(response_content, str) and response_content.strip()
+    )
 
     # Update the step with the execution result
     current_step.execution_res = response_content
@@ -706,16 +727,17 @@ async def _execute_deepagent_step(
         "step_attempts": step_attempts,
     }
     if agent_name == "researcher":
-        if has_final_report_payload:
-            update_payload["researcher_reports"] = response_content
+        update_payload["researcher_reports"] = response_content
+        if final_report_ready:
+            update_payload["final_report"] = response_content
         else:
-            update_payload["researcher_reports"] = state.get("researcher_reports", "")
-        update_payload["final_report"] = state.get("final_report", "")
+            update_payload["final_report"] = state.get("final_report", "")
     else:
         update_payload["researcher_reports"] = state.get("researcher_reports", "")
         update_payload["final_report"] = state.get("final_report", "")
 
-    return Command(update=update_payload, goto="research_team")
+    goto_target = "__end__" if agent_name == "researcher" else "research_team"
+    return Command(update=update_payload, goto=goto_target)
 
 
 
@@ -941,7 +963,7 @@ async def _setup_and_execute_deep_agent_step(
     config: RunnableConfig,
     agent_type: str,
     default_tools: list,
-) -> Command[Literal["research_team"]]:
+) -> Command[Literal["research_team", "__end__"]]:
     """Helper function to set up an agent with appropriate tools and execute a step.
 
     This function handles the common logic for both researcher_node and coder_node:
@@ -956,7 +978,7 @@ async def _setup_and_execute_deep_agent_step(
         default_tools: The default tools to add to the agent
 
     Returns:
-        Command to update state and go to research_team
+        Command to update state and go to research_team or end
     """
     configurable = Configuration.from_runnable_config(config)
     mcp_servers = {}
@@ -1031,7 +1053,7 @@ async def _setup_and_execute_deep_agent_step(
 
 async def researcher_node(
     state: State, config: RunnableConfig
-) -> Command[Literal["research_team"]]:
+) -> Command[Literal["research_team", "__end__"]]:
     """Researcher node that do research"""
     logger.info("Researcher node is researching.")
     configurable = Configuration.from_runnable_config(config)

@@ -28,6 +28,19 @@ Please create a detailed answer to the overall research brief that:
 4. Provides a balanced, thorough analysis. Be as comprehensive as possible, and include all information that is relevant to the overall research question. People are using you for deep research and will expect detailed, comprehensive answers.
 5. Includes a "Sources" section at the end with all referenced links
 
+RESEARCH REQUIREMENTS:
+- Always create a TODO plan and execute multiple research-agent calls that explore primary, supporting, and opposing viewpoints.
+- After each `web_search`, drill into every promising URL with `crawl_tool` (or `local_search_tool`) to capture detailed facts from the primary source. Do not cite anything you have not crawled and verified in this session.
+- Maintain a running list of at least 8–10 high-quality sources across different domains (news, official filings, academic papers, market analyses, etc.) before you begin writing.
+- Do not rely on prior knowledge or guesswork—every factual statement must be backed by material gathered in this session.
+- Continue researching until you have accumulated enough vetted evidence to support a long-form, reference-rich report. Only transition to drafting once the evidence base is robust.
+
+LONG-FORM REPORT EXPECTATIONS:
+- Target a minimum report length of roughly 1,500–2,000 words (or longer when warranted by the topic).
+- Provide exhaustive coverage of each major dimension of the problem, including historical context, current landscape, stakeholders, quantitative indicators, risks, regional nuances, and future outlook.
+- Summarize nuanced disagreements, edge cases, and contrarian viewpoints rather than focusing solely on mainstream narratives.
+- When dealing with companies or organizations, include deep dives into financials, products, leadership, regulatory issues, technology, customer sentiment, and competitive positioning.
+
 You can structure your report in a number of different ways. Here are some examples:
 
 To answer a question that asks you to compare two things, you might structure your report like this:
@@ -91,9 +104,9 @@ You have access to two types of tools:
    {% if resources %}
    - **local_search_tool**: For retrieving information from the local knowledge base when user mentioned in the messages.
    {% endif %}
-   - **web_search**: For performing web/internet searches (NOT "web_search_tool"). You can specify the number of results, the topic, and whether raw content should be included.
+   - **web_search**: For performing web/internet searches. You can specify the number of results, the topic, and whether raw content should be included.
 
-   - **crawl_tool**: For reading content from URLs
+   - **crawl_tool**: For reading content from URLs, this is also very useful for getting more information about a topic from the URL.
 
 2. **Dynamic Loaded Tools**: Additional tools that may be available depending on the configuration. These tools are loaded dynamically and will appear in your available tools list. Examples include:
    - Specialized search tools

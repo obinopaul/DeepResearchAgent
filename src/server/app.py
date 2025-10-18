@@ -318,9 +318,12 @@ async def _stream_graph_events(
                     yield _create_interrupt_event(thread_id, event_data)
                     continue
 
-                reporter_update = event_data.get("reporter")
-                if isinstance(reporter_update, dict):
-                    final_report_payload = reporter_update.get("final_report")
+                for agent_name in ("reporter", "researcher"):
+                    node_update = event_data.get(agent_name)
+                    if not isinstance(node_update, dict):
+                        continue
+
+                    final_report_payload = node_update.get("final_report")
                     if isinstance(final_report_payload, (list, tuple)):
                         final_report_content = next(
                             (
@@ -337,7 +340,8 @@ async def _stream_graph_events(
 
                     if isinstance(final_report_content, str) and final_report_content.strip():
                         message_id = str(
-                            reporter_update.get("message_id") or f"reporter-final-{uuid4().hex}"
+                            node_update.get("message_id")
+                            or f"{agent_name}-final-{uuid4().hex}"
                         )
                         if message_id not in emitted_report_messages:
                             emitted_report_messages.add(message_id)
@@ -346,7 +350,7 @@ async def _stream_graph_events(
                                 {
                                     "thread_id": thread_id,
                                     "id": message_id,
-                                    "agent": "reporter",
+                                    "agent": "reporter" if agent_name == "researcher" else agent_name,
                                     "role": "assistant",
                                     "content": final_report_content,
                                     "finish_reason": "stop",
