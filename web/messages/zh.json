@@ -132,7 +132,8 @@
       "nowPlayingPodcast": "正在播放播客...",
       "podcast": "播客",
       "errorGeneratingPodcast": "生成播客时出错。请重试。",
-      "downloadPodcast": "下载播客"
+      "downloadPodcast": "下载播客",
+      "searchingGeneric": "搜索中…"
     },
     "messages": {
       "replaying": "回放中",

@@ -199,6 +199,10 @@ type SearchResult =
 type NormalizedToolArgs = Record<string, unknown> & { __raw?: string };
 
 function normalizeToolArgs(args: ToolCallRuntime["args"]): NormalizedToolArgs {
+  if (args == null) {
+    return { __raw: "" };
+  }
+
   if (typeof args === "string") {
     const raw = args.trim();
     if (!raw) {
@@ -214,7 +218,45 @@ function normalizeToolArgs(args: ToolCallRuntime["args"]): NormalizedToolArgs {
     }
     return { __raw: raw };
   }
-  return { ...(args ?? {}) };
+
+  if (Array.isArray(args)) {
+    const entries: Record<string, unknown> = {};
+    args.forEach((item) => {
+      if (item && typeof item === "object") {
+        const key =
+          typeof (item as Record<string, unknown>).key === "string"
+            ? ((item as Record<string, unknown>).key as string)
+            : typeof (item as Record<string, unknown>).name === "string"
+              ? ((item as Record<string, unknown>).name as string)
+              : undefined;
+        if (key) {
+          entries[key] = (item as Record<string, unknown>).value;
+        }
+      }
+    });
+    return {
+      ...entries,
+      __raw: JSON.stringify(args),
+    };
+  }
+
+  if (typeof args === "object") {
+    const recordArgs = args as Record<string, unknown>;
+    const flattened = { ...recordArgs };
+    if (
+      recordArgs.input &&
+      typeof recordArgs.input === "object" &&
+      !Array.isArray(recordArgs.input)
+    ) {
+      Object.assign(flattened, recordArgs.input as Record<string, unknown>);
+    }
+    return {
+      ...flattened,
+      __raw: JSON.stringify(recordArgs),
+    };
+  }
+
+  return { __raw: String(args) };
 }
 
 function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
@@ -229,10 +271,13 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
     if (typeof value === "string" && value.trim()) {
       return value.trim();
     }
-    if (typeof normalizedArgs.__raw === "string" && normalizedArgs.__raw.trim()) {
+    if (
+      typeof normalizedArgs.__raw === "string" &&
+      normalizedArgs.__raw.trim()
+    ) {
       return normalizedArgs.__raw.trim();
     }
-    return "";
+    return undefined;
   }, [normalizedArgs]);
   const [searchResults, setSearchResults] = useState<SearchResult[] | undefined>();
 
@@ -276,10 +321,16 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
           animated={searchResults === undefined}
         >
           <Search size={16} className={"mr-2"} />
-          <span>{t("searchingFor")}&nbsp;</span>
-          <span className="max-w-[500px] overflow-hidden text-ellipsis whitespace-nowrap">
-            {query}
-          </span>
+          {query ? (
+            <>
+              <span>{t("searchingFor")}&nbsp;</span>
+              <span className="max-w-[500px] overflow-hidden text-ellipsis whitespace-nowrap">
+                {query}
+              </span>
+            </>
+          ) : (
+            <span>{t("searchingGeneric")}</span>
+          )}
         </RainbowText>
       </div>
       <div className="pr-4">

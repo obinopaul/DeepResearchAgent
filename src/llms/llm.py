@@ -1,6 +1,7 @@
 # Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
 # SPDX-License-Identifier: MIT
 
+import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, get_args
@@ -15,6 +16,18 @@ from langchain_openai import AzureChatOpenAI, ChatOpenAI
 from src.config import load_yaml_config
 from src.config.agents import LLMType
 from src.llms.providers.dashscope import ChatDashscope
+
+DEFAULT_TOKEN_LIMITS: dict[str, int] = {
+    "basic": 8192,
+    "reasoning": 128000,
+    "vision": 8192,
+    "code": 8192,
+    "deepagent": 200000,
+    "deepagent_openai": 128000,
+    "deepagent_deepseek": 131072,
+}
+
+logger = logging.getLogger(__name__)
 
 # Cache for LLM instances
 _llm_cache: dict[LLMType, BaseChatModel] = {}
@@ -34,6 +47,7 @@ def _get_llm_type_config_keys() -> dict[str, str]:
         "code": "CODE_MODEL",
         "deepagent": "DEEPAGENT_MODEL",
         "deepagent_openai": "DEEPAGENT_MODEL",
+        "deepagent_deepseek": "DEEPAGENT_MODEL",
     }
 
 
@@ -83,10 +97,22 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
             or "claude-sonnet-4-20250514"
         )
         try:
-            max_tokens = int(merged_conf.get("max_tokens", 64000))
+            requested_max_tokens = int(merged_conf.get("max_tokens", 20000))
         except Exception:
-            max_tokens = 64000
-        kwargs: Dict[str, Any] = {"model_name": model_name, "max_tokens": max_tokens}
+            requested_max_tokens = 20000
+
+        # Claude Sonnet 3.5 has a 200k context window; leave a safety margin so we don't exceed it.
+        safe_max_tokens = min(requested_max_tokens, 180000)
+
+        if safe_max_tokens != requested_max_tokens:
+            logger.warning(
+                "Requested deep agent max_tokens=%s exceeds safety margin for Claude context window; "
+                "clamping to %s tokens.",
+                requested_max_tokens,
+                safe_max_tokens,
+            )
+
+        kwargs: Dict[str, Any] = {"model_name": model_name, "max_tokens": safe_max_tokens}
         # Pick up API key from namespaced config or global ANTHROPIC_API_KEY
         api_key = (
             merged_conf.get("api_key")
@@ -120,6 +146,49 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
         if api_key:
             kwargs["openai_api_key"] = api_key
         return ChatOpenAI(**kwargs)
+
+    # Deepagent: DeepSeek compatible interface.
+    if llm_type == "deepagent_deepseek":
+        model_name = (
+            merged_conf.get("model")
+            or merged_conf.get("model_name")
+            or "deepseek-chat"
+        )
+        temperature = merged_conf.get("temperature", 0)
+        try:
+            temperature = float(temperature)
+        except Exception:
+            temperature = 0.0
+
+        max_tokens = merged_conf.get("max_tokens")
+        if max_tokens is not None:
+            try:
+                max_tokens = int(max_tokens)
+            except Exception:
+                max_tokens = None
+
+        kwargs: Dict[str, Any] = {
+            "model": model_name,
+            "temperature": temperature,
+            "timeout": merged_conf.get("timeout"),
+            "max_retries": merged_conf.get("max_retries", 2),
+        }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
+
+        api_key = (
+            merged_conf.get("api_key")
+            or merged_conf.get("deepseek_api_key")
+            or os.getenv("DEEPSEEK_API_KEY")
+        )
+        if api_key:
+            kwargs["api_key"] = api_key
+
+        base_url = merged_conf.get("base_url")
+        if base_url:
+            kwargs["base_url"] = base_url
+
+        return ChatDeepSeek(**kwargs)
     
     if not merged_conf:
         raise ValueError(f"No configuration found for LLM type: {llm_type}")
@@ -242,9 +311,30 @@ def get_llm_token_limit_by_type(llm_type: str) -> int:
     llm_type_config_keys = _get_llm_type_config_keys()
     config_key = llm_type_config_keys.get(llm_type)
 
-    conf = load_yaml_config(_get_config_file_path())
-    llm_max_token = conf.get(config_key, {}).get("token_limit")
-    return llm_max_token
+    env_conf = _get_env_llm_conf(llm_type)
+    token_limit = env_conf.get("token_limit")
+
+    if token_limit is None and config_key:
+        conf = load_yaml_config(_get_config_file_path())
+        token_limit = conf.get(config_key, {}).get("token_limit")
+
+    if token_limit is not None:
+        try:
+            return int(token_limit)
+        except (TypeError, ValueError):
+            logger.warning(
+                "Invalid token_limit '%s' for llm_type '%s'; falling back to defaults.",
+                token_limit,
+                llm_type,
+            )
+
+    default_limit = DEFAULT_TOKEN_LIMITS.get(llm_type)
+    if default_limit is None:
+        logger.warning(
+            "No token limit configured for llm_type '%s'; defaulting to 8192 tokens.", llm_type
+        )
+        return 8192
+    return default_limit
 
 
 # In the future, we will use reasoning_llm and vl_llm for different purposes

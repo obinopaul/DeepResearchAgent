@@ -6,7 +6,7 @@ from src.agents.agents import create_agent as create_react_agent
 from src.config.agents import AGENT_LLM_MAP
 from src.llms.llm import get_llm_by_type
 from src.prompts import apply_prompt_template
-from src.agents.deep_agents import DeepAgentState, create_deep_agent, async_create_deep_agent
+from src.agents.deep_agents import create_deep_agent
 
 # Create agents using configured LLM types
 def create_agent(
@@ -36,6 +36,10 @@ def deep_agent(
     prompt_template: str,
     sub_research_prompt: str,
     sub_critique_prompt: str,
+    sub_query_optimizer_prompt: str,
+    sub_insight_extractor_prompt: str,
+    sub_followup_prompt: str,
+    sub_evidence_auditor_prompt: str,
     pre_model_hook: callable = None,
 ):
     
@@ -52,13 +56,59 @@ def deep_agent(
         "prompt": sub_critique_prompt,
     }
 
+    query_optimizer_sub_agent = {
+        "name": "query-strategist",
+        "description": (
+            "Refines broad or ambiguous requests into precise, high-signal research directives "
+            "and highlights assumptions that must be validated."
+        ),
+        "prompt": sub_query_optimizer_prompt,
+        "tools": [],
+    }
+
+    insight_extractor_sub_agent = {
+        "name": "insight-synthesizer",
+        "description": (
+            "Transforms raw crawled material into relevance-scored insights with evidence, implications and gaps."
+        ),
+        "prompt": sub_insight_extractor_prompt,
+        "tools": tools,
+    }
+
+    followup_architect_sub_agent = {
+        "name": "exploration-architect",
+        "description": (
+            "Identifies high-leverage follow-up investigations, counterfactual checks, and monitoring hooks."
+        ),
+        "prompt": sub_followup_prompt,
+        "tools": [],
+    }
+
+    evidence_auditor_sub_agent = {
+        "name": "evidence-auditor",
+        "description": (
+            "Audits draft findings for evidentiary strength, missing citations, quantitative accuracy, and risk coverage."
+        ),
+        "prompt": sub_evidence_auditor_prompt,
+        "tools": tools,
+    }
+
+    all_subagents = [
+        critique_sub_agent,
+        research_sub_agent,
+        query_optimizer_sub_agent,
+        insight_extractor_sub_agent,
+        followup_architect_sub_agent,
+        evidence_auditor_sub_agent,
+    ]
+
     """Factory function to create agents with consistent configuration."""
     # Always use the dedicated deepagent LLM type for orchestration, independent of the caller's agent_type
     return create_deep_agent(
         # name=agent_name,
         model=get_llm_by_type(AGENT_LLM_MAP["deepagent_openai"]),
         tools=tools,
-        subagents=[critique_sub_agent, research_sub_agent],
+        subagents=all_subagents,
         # instructions =lambda state: apply_prompt_template(prompt_template, state),
         instructions=prompt_template,
         # pre_model_hook=pre_model_hook,

@@ -290,7 +290,22 @@ async def _process_message_chunk(
         else:
             # AI Message - Raw message tokens
             if agent_name == "researcher":
-                content = (message_chunk.content or "") if hasattr(message_chunk, "content") else ""
+                raw_content = getattr(message_chunk, "content", "") or ""
+                if isinstance(raw_content, list):
+                    normalized_parts: list[str] = []
+                    for part in raw_content:
+                        if isinstance(part, dict):
+                            text_value = part.get("text") or part.get("content") or part.get("value")
+                            if isinstance(text_value, str):
+                                normalized_parts.append(text_value)
+                            else:
+                                normalized_parts.append(str(part))
+                        else:
+                            normalized_parts.append(str(part))
+                    content = "\n".join(normalized_parts)
+                else:
+                    content = str(raw_content)
+
                 # Drop internal operational noise to avoid clogging UI
                 for pref in BLOCKED_RESEARCH_LINE_PREFIXES:
                     if content.strip().startswith(pref):

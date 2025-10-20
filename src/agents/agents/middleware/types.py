@@ -75,6 +75,21 @@ class ModelRequest:
 
 
 @dataclass
+class ModelResponse:
+    """Response from model execution including messages and optional structured output.
+
+    The result will usually contain a single AIMessage, but may include
+    an additional ToolMessage if the model used a tool for structured output.
+    """
+
+    result: list[BaseMessage]
+    """List of messages from model execution."""
+
+    structured_response: Any = None
+    """Parsed structured output if response_format was specified, None otherwise."""
+    
+    
+@dataclass
 class OmitFromSchema:
     """Annotation used to mark state attributes as omitted from input or output schemas."""
 

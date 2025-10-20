@@ -2,10 +2,14 @@ from typing import Sequence, Union, Callable, Any, Type, Optional
 from langchain_core.tools import BaseTool
 from langchain_core.language_models import LanguageModelLike
 from langgraph.types import Checkpointer
-from src.agents.agents.middleware import AgentMiddleware, SummarizationMiddleware, HumanInTheLoopMiddleware
+from src.agents.agents.middleware import AgentMiddleware, HumanInTheLoopMiddleware
 from src.agents.agents.middleware.human_in_the_loop import ToolConfig
-from src.agents.agents.middleware.prompt_caching import AnthropicPromptCachingMiddleware
-from src.agents.deep_agents.middleware import PlanningMiddleware, FilesystemMiddleware, SubAgentMiddleware
+from src.agents.deep_agents.middleware import (
+    SubAgentMiddleware,
+    build_deepagent_middleware_stack,
+    _compute_summary_budget,
+    _resolve_token_limit_for_model,
+)
 from src.agents.deep_agents.prompts import BASE_AGENT_PROMPT
 from src.agents.deep_agents.model import get_default_model
 from src.agents.deep_agents.types import SubAgent, CustomSubAgent
@@ -25,22 +29,20 @@ def agent_builder(
     if model is None:
         model = get_default_model()
 
+    token_limit = _resolve_token_limit_for_model(model)
+    summary_budget = _compute_summary_budget(token_limit)
+    base_stack = build_deepagent_middleware_stack(model, summary_budget)
+
     deepagent_middleware = [
-        PlanningMiddleware(),
-        FilesystemMiddleware(),
+        *base_stack[:3],
         SubAgentMiddleware(
             default_subagent_tools=tools,   # NOTE: These tools are piped to the general-purpose subagent.
             subagents=subagents if subagents is not None else [],
             model=model,
             is_async=is_async,
+            summary_budget=summary_budget,
         ),
-        SummarizationMiddleware(
-            model=model,
-            # max_tokens_before_summary=120000,
-            max_tokens_before_summary=80000,
-            messages_to_keep=20,
-        ),
-        AnthropicPromptCachingMiddleware(ttl="5m", unsupported_model_behavior="ignore")
+        *base_stack[3:],
     ]
     # Add tool interrupt config if provided
     if tool_configs is not None:

@@ -133,6 +133,7 @@
       "copy": "Copy",
       "downloadReport": "Download report as markdown",
       "searchingFor": "Searching for",
+      "searchingGeneric": "Searching…",
       "reading": "Reading",
       "runningPythonCode": "Running Python code",
       "errorExecutingCode": "Error when executing the above code",
@@ -240,4 +241,3 @@
     }
   }
 }
-

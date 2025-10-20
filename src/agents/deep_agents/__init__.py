@@ -2,7 +2,12 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from src.agents.deep_agents.graph import create_deep_agent, async_create_deep_agent
-    from src.agents.deep_agents.middleware import PlanningMiddleware, FilesystemMiddleware, SubAgentMiddleware
+    from src.agents.deep_agents.middleware import (
+        PlanningMiddleware,
+        FilesystemMiddleware,
+        InsightLoggingMiddleware,
+        SubAgentMiddleware,
+    )
     from src.agents.deep_agents.state import DeepAgentState
     from src.agents.deep_agents.types import SubAgent, CustomSubAgent
     from src.agents.deep_agents.model import get_default_model
@@ -21,6 +26,9 @@ def __getattr__(name):
     elif name == "FilesystemMiddleware":
         from src.agents.deep_agents.middleware import FilesystemMiddleware
         return FilesystemMiddleware
+    elif name == "InsightLoggingMiddleware":
+        from src.agents.deep_agents.middleware import InsightLoggingMiddleware
+        return InsightLoggingMiddleware
     elif name == "SubAgentMiddleware":
         from src.agents.deep_agents.middleware import SubAgentMiddleware
         return SubAgentMiddleware
@@ -45,6 +53,7 @@ __all__ = [
     "async_create_deep_agent",
     "PlanningMiddleware",
     "FilesystemMiddleware",
+    "InsightLoggingMiddleware",
     "SubAgentMiddleware",
     "DeepAgentState",
     "SubAgent",

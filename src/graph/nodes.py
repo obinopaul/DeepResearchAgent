@@ -4,7 +4,9 @@
 import json
 import logging
 import os
-from typing import Annotated, Literal
+from pathlib import Path
+from typing import Annotated, Any, Literal
+from textwrap import dedent
 from pydantic import ValidationError
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import RunnableConfig
@@ -519,225 +521,250 @@ def research_team_node(state: State):
     pass
 
 
+def _extract_primary_user_brief(messages: list) -> str:
+    """Return the most recent end-user HumanMessage content."""
+    for message in reversed(messages or []):
+        if isinstance(message, HumanMessage):
+            name = getattr(message, "name", None)
+            if name in (None, "user"):
+                return message.content or ""
+    return ""
 
-async def _execute_deepagent_step(
-    state: State, agent, agent_name: str
-) -> Command[Literal["research_team", "__end__"]]:
-    """Helper function to execute a step using the specified agent."""
-    current_plan = state.get("current_plan")
-    plan_title = current_plan.title
-    observations = state.get("observations", [])
 
-    # Find the first unexecuted step
-    current_step = None
-    completed_steps = []
-    for step in current_plan.steps:
-        if not step.execution_res:
-            current_step = step
-            break
-        else:
-            completed_steps.append(step)
+def _render_plan_summary(plan: Plan, *, max_step_detail: int = 600) -> str:
+    """Render the planner output into markdown-friendly text."""
+    if plan is None:
+        return "No plan information available."
 
-    if not current_step:
-        logger.warning("No unexecuted step found in the plan. Proceeding to next phase.")
-        goto_target = "__end__" if agent_name == "researcher" else "research_team"
-        return Command(goto=goto_target)
+    lines: list[str] = []
+    lines.append(f"## Plan Title\n\n{plan.title}")
+    if getattr(plan, "thought", None):
+        lines.append("## Planner Rationale\n")
+        lines.append(plan.thought)
+    lines.append("## Plan Metadata\n")
+    lines.append(f"- Locale: {plan.locale}")
+    lines.append(f"- Has enough context: {plan.has_enough_context}")
 
-    logger.info(f"Executing step: {current_step.title}, agent: {agent_name}")
+    if plan.steps:
+        lines.append("\n## Planned Steps\n")
+        for idx, step in enumerate(plan.steps, start=1):
+            lines.append(f"### Step {idx}: {step.title}")
+            lines.append(step.description)
+            lines.append(f"- Step type: {step.step_type}")
+            lines.append(f"- Requires search: {step.need_search}")
+            if step.execution_res:
+                detail = step.execution_res.strip()
+                if max_step_detail and len(detail) > max_step_detail:
+                    detail = detail[: max_step_detail - 3] + "..."
+                lines.append(f"- Existing execution result: {detail}")
+            lines.append("")
+    else:
+        lines.append("\n(No steps were generated in the plan.)")
 
-    # Safety guard: per-step attempts cap
-    step_attempts = state.get("step_attempts", {}) or {}
-    title_key = str(current_step.title)
-    try:
-        max_attempts = int(os.getenv("RESEARCH_STEP_MAX_ATTEMPTS", "3"))
-        if max_attempts <= 0:
-            max_attempts = 3
-    except Exception:
-        max_attempts = 3
-    attempts = int(step_attempts.get(title_key, 0))
-    if attempts >= max_attempts:
-        logger.warning(
-            f"Max attempts reached for step '{title_key}' ({attempts} >= {max_attempts}). Routing to planner."
-        )
-        return Command(
-            update={
-                "step_attempts": step_attempts,
-                "current_plan": current_plan,
-            },
-            goto="planner",
-        )
+    return "\n".join(
+        filter(None, [segment.strip() for segment in lines if segment is not None])
+    ).strip()
 
-    # Format completed steps information
-    completed_steps_info = ""
-    if completed_steps:
-        completed_steps_info = "# Completed Research Steps\n\n"
-        for i, step in enumerate(completed_steps):
-            completed_steps_info += f"## Completed Step {i + 1}: {step.title}\n\n"
-            completed_steps_info += f"<finding>\n{step.execution_res}\n</finding>\n\n"
 
-    # Prepare the input for the agent with completed steps info
-    agent_input = {
-        "messages": [
-            HumanMessage(
-                content=f"# Research Topic\n\n{plan_title}\n\n{completed_steps_info}# Current Step\n\n## Title\n\n{current_step.title}\n\n## Description\n\n{current_step.description}\n\n## Locale\n\n{state.get('locale', 'en-US')}"
-            )
-        ]
-    }
+def _extract_final_report_from_result(result: dict | Any) -> tuple[str, bool]:
+    """Safely extract final report content from deep agent result."""
+    response_content: str | None = None
+    has_payload = False
 
-    # Add citation reminder for researcher agent
-    if agent_name == "researcher":
-        if state.get("resources"):
-            resources_info = "**The user mentioned the following resource files:**\n\n"
-            for resource in state.get("resources"):
-                resources_info += f"- {resource.title} ({resource.description})\n"
+    def _matches_final_report(name: str | None) -> bool:
+        if not isinstance(name, str):
+            return False
+        try:
+            return Path(name).name == "final_report.md"
+        except Exception:
+            return name == "final_report.md"
 
-            agent_input["messages"].append(
-                HumanMessage(
-                    content=resources_info
-                    + "\n\n"
-                    + "You MUST use the **local_search_tool** to retrieve the information from the resource files.",
-                )
-            )
+    def _extract_file_payload(file_entry):
+        if isinstance(file_entry, str):
+            stripped = file_entry.strip()
+            return stripped or None
+        if isinstance(file_entry, dict):
+            for field in ("content", "data", "text", "value"):
+                value = file_entry.get(field)
+                if isinstance(value, str) and value.strip():
+                    return value
+        return None
 
-        # agent_input["messages"].append(
-        #     HumanMessage(
-        #         content=(
-        #             "SYSTEM DIRECTIVE: You must conduct exhaustive, tool-driven research before drafting any findings.\n"
-        #             "- Begin every investigation with several distinct `web_search` calls to surface a broad slate of primary, supporting, and dissenting perspectives. Capture at least 6–8 unique candidate sources spanning multiple domains.\n"
-        #             "- For each promising URL, immediately follow up with `crawl_tool` (or `local_search_tool` when appropriate) to read the underlying content, confirm the link is reachable, and extract detailed evidence. Never cite a source you have not crawled in this session.\n"
-        #             "- Augment shallow search snippets by drilling into company sites, regulatory filings, academic PDFs, and other first-party references using `crawl_tool` so the final report reflects deep, primary research.\n"
-        #             "- Do not rely on memory or previously seen data; collect fresh evidence in this session. Retire any source that errors or proves irrelevant and replace it with a vetted alternative.\n"
-        #             "- Continue researching until you have verified insights from at least 8 trustworthy sources and enough material to sustain a multi-thousand-word, reference-rich report for this plan step. If coverage still feels thin, keep searching."
-        #         ),
-        #         name="system",
-        #     )
-        # )
-
-        agent_input["messages"].append(
-            HumanMessage(
-                content="IMPORTANT: DO NOT include inline citations in the text. Instead, track all sources and include a References section at the end using link reference format. Include an empty line between each citation for better readability. Use this format for each reference:\n- [Source Title](URL)\n\n- [Another Source](URL)",
-                name="system",
-            )
-        )
-
-   
-    # --- 4. Invoke Agent and Process Results ---
-    logger.info(f"Executing step '{current_step.title}' with deep_agent '{agent_name}'...")
-    logger.debug(f"Agent input: {agent_input}")
-    
-    # Note: The specific recursion limit from the old function is removed
-    # Increment attempt before invoking
-    step_attempts[title_key] = attempts + 1
-    result = await agent.ainvoke(input=agent_input)
-
-    # Extract final report defensively from deep agent output
-    response_content = None
-    has_final_report_payload = False
     try:
         if isinstance(result, dict):
             files_obj = result.get("files")
-            file_report = None
+
             if isinstance(files_obj, dict):
-                file_report = files_obj.get("final_report.md")
+                for file_name, file_entry in files_obj.items():
+                    if _matches_final_report(file_name):
+                        candidate = _extract_file_payload(file_entry)
+                        if candidate:
+                            response_content = candidate
+                            has_payload = True
+                            break
+                if response_content is None:
+                    maybe_direct = files_obj.get("final_report")
+                    candidate = _extract_file_payload(maybe_direct)
+                    if candidate:
+                        response_content = candidate
+                        has_payload = True
+
             elif isinstance(files_obj, list):
                 for item in files_obj:
-                    if isinstance(item, dict) and item.get("name") == "final_report.md":
-                        file_report = item
-                        break
-
-            if file_report is not None:
-                if isinstance(file_report, str):
-                    candidate = file_report
-                elif isinstance(file_report, dict):
-                    candidate = (
-                        file_report.get("content")
-                        or file_report.get("data")
-                        or file_report.get("text")
-                        or file_report.get("value")
-                    )
-                else:
-                    candidate = None
-
-                if isinstance(candidate, str) and candidate.strip():
-                    response_content = candidate
-                    has_final_report_payload = True
+                    if isinstance(item, dict) and _matches_final_report(item.get("name")):
+                        candidate = _extract_file_payload(item)
+                        if candidate:
+                            response_content = candidate
+                            has_payload = True
+                            break
 
             if response_content is None:
                 raw_final_report = result.get("final_report")
-                if isinstance(raw_final_report, str) and raw_final_report.strip():
-                    response_content = raw_final_report
-                    has_final_report_payload = True
-                elif isinstance(raw_final_report, dict):
-                    candidate = (
-                        raw_final_report.get("content")
-                        or raw_final_report.get("data")
-                        or raw_final_report.get("text")
-                        or raw_final_report.get("value")
-                    )
-                    if isinstance(candidate, str) and candidate.strip():
-                        response_content = candidate
-                        has_final_report_payload = True
+                candidate = _extract_file_payload(raw_final_report)
+                if candidate:
+                    response_content = candidate
+                    has_payload = True
 
-            if response_content is None and isinstance(result.get("messages"), list) and result["messages"]:
+            if (
+                response_content is None
+                and isinstance(result.get("messages"), list)
+                and result["messages"]
+            ):
                 last = result["messages"][-1]
                 try:
                     content_attr = getattr(last, "content", None)
                     if isinstance(content_attr, str):
-                        response_content = content_attr
-                        has_final_report_payload = bool(response_content.strip())
+                        stripped = content_attr.strip()
+                        if stripped:
+                            response_content = stripped
+                            has_payload = True
                 except Exception:
                     pass
 
-        if response_content is None:
-            response_content = str(result)
-    except Exception as e:
-        logger.warning(f"Failed to parse deep agent result; falling back to string: {e}")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "Failed to parse deep agent result; falling back to string: %s", exc
+        )
         response_content = str(result)
     finally:
         if response_content is None:
-            response_content = ""
+            response_content = str(result) if not isinstance(result, str) else result
 
-    logger.debug(f"{agent_name.capitalize()} full response (extracted): {response_content}")
-    final_report_ready = has_final_report_payload or (
-        isinstance(response_content, str) and response_content.strip()
+    return response_content, has_payload
+
+
+
+
+
+async def _execute_deepagent_step(
+    state: State, agent, agent_name: str
+) -> Command[Literal["research_team", "__end__"]]:
+    """Execute the full research brief with the deep agent in a single run."""
+    current_plan = state.get("current_plan")
+    if current_plan is None:
+        logger.warning("No current plan present; skipping deep agent execution.")
+        return Command(goto="planner")
+
+    locale_value = state.get("locale") or getattr(current_plan, "locale", "en-US")
+    user_brief = _extract_primary_user_brief(state.get("messages", []))
+    if user_brief and len(user_brief) > 6000:
+        user_brief = user_brief[:6000] + "\n\n...[truncated]"
+    plan_summary = _render_plan_summary(current_plan)
+
+    brief_sections = [
+        "# Original Research Brief",
+        user_brief.strip() if user_brief else "(No direct user message captured in state.)",
+        "# Planner Output Snapshot",
+        plan_summary,
+        "# Execution Instructions",
+        dedent(
+            f"""
+            - Integrate the planner steps into your internal TODO list using the `write_todos` tool.
+            - Expand or refine the steps as needed to ensure exhaustive coverage of the research brief.
+            - Conduct thorough, tool-driven research before drafting any findings.
+            - Store the original question in `question.txt`, and write the final deliverable to `final_report.md`.
+            - Ensure the final report respects the locale `{locale_value}` and follows all citation requirements.
+            """
+        ).strip(),
+    ]
+
+    primary_message_content = "\n\n".join(
+        [section for section in brief_sections if section]
+    ).strip()
+    messages = [HumanMessage(content=primary_message_content)]
+
+    resources = state.get("resources")
+    if resources:
+        resources_lines = ["**The user mentioned the following resource files:**", ""]
+        for resource in resources:
+            resources_lines.append(f"- {resource.title} ({resource.description})")
+        resources_lines.append(
+            "\nYou MUST use the **local_search_tool** to retrieve the information from the resource files."
+        )
+        messages.append(HumanMessage(content="\n".join(resources_lines)))
+
+    messages.append(
+        HumanMessage(
+            content="IMPORTANT: Track all sources and include a References section at the end using link reference format. Include an empty line between each citation.",
+            name="system",
+        )
     )
 
-    # Update the step with the execution result
-    current_step.execution_res = response_content
-    logger.info(f"Step '{current_step.title}' execution completed by {agent_name}.")
+    logger.info("Executing consolidated deep_agent run for %s.", agent_name)
+    logger.debug("Deep agent input messages: %s", primary_message_content)
+    result = await agent.ainvoke(input={"messages": messages})
 
+    response_content, has_final_report_payload = _extract_final_report_from_result(result)
+    response_content = response_content.strip()
+    logger.debug(
+        "%s consolidated response (extracted): %s",
+        agent_name.capitalize(),
+        response_content,
+    )
 
-    # Clear attempts for this step now that it is completed
-    if title_key in step_attempts:
-        try:
-            del step_attempts[title_key]
-        except Exception:
-            pass
+    observations = state.get("observations", []) or []
+    if response_content:
+        observations = [*observations, response_content]
 
-    update_payload = {
+    # Mark all plan steps as completed so downstream routing progresses.
+    for step in getattr(current_plan, "steps", []) or []:
+        step.execution_res = (
+            step.execution_res
+            or "Completed during consolidated deep-agent execution. Refer to final_report.md for detailed findings."
+        )
+
+    update_payload: dict[str, Any] = {
         "messages": [
             HumanMessage(
-                content=response_content,
+                content=response_content
+                or "Completed consolidated deep-agent execution.",
                 name=agent_name,
             )
         ],
-        "observations": observations + [response_content],
-        # Persist the updated plan so routing logic sees completed steps
+        "observations": observations,
         "current_plan": current_plan,
-        "step_attempts": step_attempts,
+        "step_attempts": {},
     }
+
     if agent_name == "researcher":
-        update_payload["researcher_reports"] = response_content
-        if final_report_ready:
-            update_payload["final_report"] = response_content
+        if response_content:
+            update_payload["researcher_reports"] = response_content
+            if has_final_report_payload:
+                update_payload["final_report"] = response_content
+            else:
+                update_payload["final_report"] = state.get(
+                    "final_report", response_content
+                )
         else:
+            update_payload["researcher_reports"] = state.get(
+                "researcher_reports", ""
+            )
             update_payload["final_report"] = state.get("final_report", "")
     else:
         update_payload["researcher_reports"] = state.get("researcher_reports", "")
         update_payload["final_report"] = state.get("final_report", "")
 
-    goto_target = "__end__" if agent_name == "researcher" else "research_team"
-    return Command(update=update_payload, goto=goto_target)
+    return Command(update=update_payload, goto="research_team")
 
 
 
@@ -913,6 +940,36 @@ async def _setup_and_execute_agent_step(
     configurable = Configuration.from_runnable_config(config)
     mcp_servers = {}
     enabled_tools = {}
+    main_prompt = get_prompt_template("main_research_prompt")
+    sub_research_prompt = get_prompt_template("sub_research_prompt")
+    sub_critique_prompt = get_prompt_template("sub_critique_prompt")
+    sub_query_optimizer_prompt = get_prompt_template("sub_query_optimizer_prompt")
+    sub_insight_extractor_prompt = get_prompt_template("sub_insight_extractor_prompt")
+    sub_followup_prompt = get_prompt_template("sub_followup_prompt")
+    sub_evidence_auditor_prompt = get_prompt_template("sub_evidence_auditor_prompt")
+    main_prompt = get_prompt_template("main_research_prompt")
+    sub_research_prompt = get_prompt_template("sub_research_prompt")
+    sub_critique_prompt = get_prompt_template("sub_critique_prompt")
+    sub_query_optimizer_prompt = get_prompt_template("sub_query_optimizer_prompt")
+    sub_insight_extractor_prompt = get_prompt_template("sub_insight_extractor_prompt")
+    sub_followup_prompt = get_prompt_template("sub_followup_prompt")
+    sub_evidence_auditor_prompt = get_prompt_template("sub_evidence_auditor_prompt")
+
+    main_prompt = get_prompt_template("main_research_prompt")
+    sub_research_prompt = get_prompt_template("sub_research_prompt")
+    sub_critique_prompt = get_prompt_template("sub_critique_prompt")
+    sub_query_optimizer_prompt = get_prompt_template("sub_query_optimizer_prompt")
+    sub_insight_extractor_prompt = get_prompt_template("sub_insight_extractor_prompt")
+    sub_followup_prompt = get_prompt_template("sub_followup_prompt")
+    sub_evidence_auditor_prompt = get_prompt_template("sub_evidence_auditor_prompt")
+
+    main_prompt = get_prompt_template("main_research_prompt")
+    sub_research_prompt = get_prompt_template("sub_research_prompt")
+    sub_critique_prompt = get_prompt_template("sub_critique_prompt")
+    sub_query_optimizer_prompt = get_prompt_template("sub_query_optimizer_prompt")
+    sub_insight_extractor_prompt = get_prompt_template("sub_insight_extractor_prompt")
+    sub_followup_prompt = get_prompt_template("sub_followup_prompt")
+    sub_evidence_auditor_prompt = get_prompt_template("sub_evidence_auditor_prompt")
 
     # Extract MCP server configuration for this agent type
     if configurable.mcp_settings:
@@ -941,16 +998,22 @@ async def _setup_and_execute_agent_step(
                 )
                 loaded_tools.append(tool)
 
-        llm_token_limit = get_llm_token_limit_by_type(AGENT_LLM_MAP[agent_type])
-        pre_model_hook = partial(ContextManager(llm_token_limit, 3).compress_messages)
+        llm_token_limit = get_llm_token_limit_by_type(AGENT_LLM_MAP["deepagent"])
+        raw_limit = llm_token_limit or 60000
+        context_budget = max(raw_limit // 20, 4000)
+        context_budget = min(context_budget, max(raw_limit - 8000, 4000))
+        pre_model_hook = partial(ContextManager(context_budget, 3).compress_messages)
         agent = create_agent(
             agent_type, agent_type, loaded_tools, agent_type, pre_model_hook
         )
         return await _execute_agent_step(state, agent, agent_type)
     else:
         # Use default tools if no MCP servers are configured
-        llm_token_limit = get_llm_token_limit_by_type(AGENT_LLM_MAP[agent_type])
-        pre_model_hook = partial(ContextManager(llm_token_limit, 3).compress_messages)
+        llm_token_limit = get_llm_token_limit_by_type(AGENT_LLM_MAP["deepagent"])
+        raw_limit = llm_token_limit or 60000
+        context_budget = max(raw_limit // 20, 4000)
+        context_budget = min(context_budget, max(raw_limit - 8000, 4000))
+        pre_model_hook = partial(ContextManager(context_budget, 3).compress_messages)
         agent = create_agent(
             agent_type, agent_type, default_tools, agent_type, pre_model_hook
         )
@@ -983,6 +1046,13 @@ async def _setup_and_execute_deep_agent_step(
     configurable = Configuration.from_runnable_config(config)
     mcp_servers = {}
     enabled_tools = {}
+    main_prompt = get_prompt_template("main_research_prompt")
+    sub_research_prompt = get_prompt_template("sub_research_prompt")
+    sub_critique_prompt = get_prompt_template("sub_critique_prompt")
+    sub_query_optimizer_prompt = get_prompt_template("sub_query_optimizer_prompt")
+    sub_insight_extractor_prompt = get_prompt_template("sub_insight_extractor_prompt")
+    sub_followup_prompt = get_prompt_template("sub_followup_prompt")
+    sub_evidence_auditor_prompt = get_prompt_template("sub_evidence_auditor_prompt")
 
     # Extract MCP server configuration for this agent type
     if configurable.mcp_settings:
@@ -1012,7 +1082,8 @@ async def _setup_and_execute_deep_agent_step(
                 loaded_tools.append(tool)
 
         llm_token_limit = get_llm_token_limit_by_type(AGENT_LLM_MAP[agent_type])
-        pre_model_hook = partial(ContextManager(llm_token_limit, 3).compress_messages)
+        context_budget = min(max(llm_token_limit or 0, 20000), 60000)
+        pre_model_hook = partial(ContextManager(context_budget, 3).compress_messages)
         
         # agent = create_agent(
         #     agent_type, agent_type, loaded_tools, agent_type, pre_model_hook
@@ -1021,9 +1092,13 @@ async def _setup_and_execute_deep_agent_step(
             agent_name=agent_type,
             agent_type=agent_type,
             tools = loaded_tools,
-            prompt_template = get_prompt_template("main_research_prompt"),
-            sub_research_prompt = get_prompt_template("sub_research_prompt"),
-            sub_critique_prompt = get_prompt_template("sub_critique_prompt"),
+            prompt_template = main_prompt,
+            sub_research_prompt = sub_research_prompt,
+            sub_critique_prompt = sub_critique_prompt,
+            sub_query_optimizer_prompt = sub_query_optimizer_prompt,
+            sub_insight_extractor_prompt = sub_insight_extractor_prompt,
+            sub_followup_prompt = sub_followup_prompt,
+            sub_evidence_auditor_prompt = sub_evidence_auditor_prompt,
             pre_model_hook = pre_model_hook
         )
 
@@ -1032,7 +1107,8 @@ async def _setup_and_execute_deep_agent_step(
     else:
         # Use default tools if no MCP servers are configured
         llm_token_limit = get_llm_token_limit_by_type(AGENT_LLM_MAP[agent_type])
-        pre_model_hook = partial(ContextManager(llm_token_limit, 3).compress_messages)
+        context_budget = min(max(llm_token_limit or 0, 20000), 60000)
+        pre_model_hook = partial(ContextManager(context_budget, 3).compress_messages)
         loaded_tools = default_tools[:] # This is the line to add
         # agent = create_agent(
         #     agent_type, agent_type, default_tools, agent_type, pre_model_hook
@@ -1042,9 +1118,13 @@ async def _setup_and_execute_deep_agent_step(
             agent_name=agent_type,
             agent_type=agent_type,
             tools = loaded_tools,
-            prompt_template = get_prompt_template("main_research_prompt"),
-            sub_research_prompt = get_prompt_template("sub_research_prompt"),
-            sub_critique_prompt = get_prompt_template("sub_critique_prompt"),
+            prompt_template = main_prompt,
+            sub_research_prompt = sub_research_prompt,
+            sub_critique_prompt = sub_critique_prompt,
+            sub_query_optimizer_prompt = sub_query_optimizer_prompt,
+            sub_insight_extractor_prompt = sub_insight_extractor_prompt,
+            sub_followup_prompt = sub_followup_prompt,
+            sub_evidence_auditor_prompt = sub_evidence_auditor_prompt,
             pre_model_hook = pre_model_hook
         )
 

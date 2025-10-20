@@ -334,7 +334,7 @@ READ_FILE_TOOL_DESCRIPTION = """Reads a file from the local filesystem. You can 
 Assume this tool is able to read all files on the machine. If the User provides a path to a file assume that path is valid. It is okay to read a file that does not exist; an error will be returned.
 
 Usage:
-- The file_path parameter must be an absolute path, not a relative path
+- The file_path parameter can be absolute or relative to the project workspace, but absolute paths must stay within the workspace
 - By default, it reads up to 2000 lines starting from the beginning of the file
 - You can optionally specify a line offset and limit (especially handy for long files), but it's recommended to read the whole file by not providing these parameters
 - Any lines longer than 2000 characters will be truncated
@@ -356,9 +356,9 @@ Usage:
 WRITE_FILE_TOOL_DESCRIPTION = """Writes to a file in the local filesystem.
 
 Usage:
-- The file_path parameter must be an absolute path, not a relative path
+- The file_path parameter can be absolute or relative to the project workspace, but absolute paths must stay within the workspace
 - The content parameter must be a string
-- The write_file tool will create the a new file.
+- The write_file tool will create the new file if it is missing.
 - Prefer to edit existing files over creating new ones when possible."""
 
 WRITE_TODOS_SYSTEM_PROMPT = """## `write_todos`
@@ -410,6 +410,23 @@ You have access to a local, private filesystem which you can interact with using
 - read_file: read a file from the local filesystem
 - write_file: write to a file in the local filesystem
 - edit_file: edit a file in the local filesystem"""
+
+INSIGHT_LOGGING_SYSTEM_PROMPT = """## Research Memory Protocol
+
+Maintain an explicit research log while you work:
+- Capture every significant insight in a dedicated `insight` entry that contains the claim, evidence snippet, and source URL.
+- Track open questions in `gap` entries and propose specific follow-up actions.
+- Record any conflicting evidence as `contradiction` entries, explaining the variance and next steps.
+- When you finish a task, summarise the state of the research log and reference where the information is stored on disk.
+
+Represent log entries in JSON so they can be merged across turns, for example:
+```
+{"type": "insight", "claim": "...", "evidence": "...", "source": "...", "confidence": "0.82"}
+{"type": "gap", "description": "...", "follow_up": "..."}
+{"type": "contradiction", "details": "...", "sources": ["...", "..."]}
+```
+
+Keep the log up to date as you learn new information. Do not delete previous entries—append updates instead."""
 
 BASE_AGENT_PROMPT = """
 You are a world-class programmer and researcher. Your purpose is to help users accomplish their goals by breaking down their requests into a plan of executable steps.

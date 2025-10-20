@@ -943,11 +943,11 @@ wheels = [
 
 [[package]]
 name = "json-repair"
-version = "0.39.1"
+version = "0.40.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/95/60/6d1599bc01070d9fe3840d245ae80fd24b981c732d962842825ce7a9fde6/json_repair-0.39.1.tar.gz", hash = "sha256:e90a489f247e1a8fc86612a5c719872a3dbf9cbaffd6d55f238ec571a77740fa", size = 30040, upload-time = "2025-02-23T11:26:13.834Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/88/36/e03fe9da84e04b475290f8612de7b229b78e37c80e44188b85fe56dbab66/json_repair-0.40.0.tar.gz", hash = "sha256:ce3cdef63f033d072295ca892cba51487292cd937da42dc20a8d629ecf5eb82d", size = 30098, upload-time = "2025-03-19T12:21:44.242Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ff/b9/2e445481555422b907dab468b53574bc1e995099ca1a1201d0d876ca05e9/json_repair-0.39.1-py3-none-any.whl", hash = "sha256:3001409a2f319249f13e13d6c622117a5b70ea7e0c6f43864a0233cdffc3a599", size = 20686, upload-time = "2025-02-23T11:26:12.582Z" },
+    { url = "https://files.pythonhosted.org/packages/f4/e1/f0e63cc027669763ccc2c1e62ba69959ec02db5328c81df2508a52711ec9/json_repair-0.40.0-py3-none-any.whl", hash = "sha256:46955bfd22338ba60cc5239c0b01462ba419871b19fcd68d8881aca4fa3b0d2f", size = 20736, upload-time = "2025-03-19T12:21:42.867Z" },
 ]
 
 [[package]]
@@ -1190,6 +1190,21 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/32/88/28a78b1f15dbabc32e3b892c3c71bdcb4a48a501e7d604f5d42fb365a191/langchain_openai-0.3.22.tar.gz", hash = "sha256:42802b1c64824edd4a0e5093bdb791e4323cf1d281594cf58194ad714db6cd49", size = 647768, upload-time = "2025-06-10T19:56:01.702Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/ec/dd/effc847fd55b808d04f7e453d1e4bd3dc813708113ee283055e77be6d651/langchain_openai-0.3.22-py3-none-any.whl", hash = "sha256:945d3b18f2293504d0b81971a9017fc1294571cce4204c18aba3cfbfc43d24c6", size = 65295, upload-time = "2025-06-10T19:56:00.609Z" },
+]
+
+[[package]]
+name = "langchain-qwq"
+version = "0.2.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "json-repair" },
+    { name = "langchain-core" },
+    { name = "langchain-openai" },
+    { name = "openai" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/d1/ef/ea69f4962c02e8fe50f019d67a1e1335c2b528ebd9d52f10b0c2598b5838/langchain_qwq-0.2.1.tar.gz", hash = "sha256:a69cc9b409000a3f249af47af6665e9634eb58a728e3d19918457585aeaff452", size = 16402, upload-time = "2025-08-10T19:58:26.191Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/db/66/288ae0e3ce4cabba74de97f5a380b8347447297523abba7462affa86c49c/langchain_qwq-0.2.1-py3-none-any.whl", hash = "sha256:ce71e82ba2e9ef389ecc5d59bfd449151fd9f125ade7b58a468ea4bb197a6f3e", size = 15465, upload-time = "2025-08-10T19:58:25.182Z" },
 ]
 
 [[package]]
@@ -1634,6 +1649,7 @@ dependencies = [
     { name = "langchain-mcp-adapters" },
     { name = "langchain-milvus" },
     { name = "langchain-openai" },
+    { name = "langchain-qwq" },
     { name = "langchain-tavily" },
     { name = "langfuse" },
     { name = "langgraph" },
@@ -1689,6 +1705,7 @@ requires-dist = [
     { name = "langchain-mcp-adapters", specifier = ">=0.0.9" },
     { name = "langchain-milvus", specifier = ">=0.2.1" },
     { name = "langchain-openai", specifier = ">=0.3.8" },
+    { name = "langchain-qwq", specifier = ">=0.2.1" },
     { name = "langchain-tavily", specifier = "<0.3" },
     { name = "langfuse", specifier = ">=3.6.1" },
     { name = "langgraph", specifier = ">=0.6.8" },

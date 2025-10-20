@@ -90,9 +90,10 @@ Format the report in clear markdown with proper structure and include source ref
 - IMPORTANT: Number sources sequentially without gaps (1,2,3,4...) in the final list regardless of which sources you choose
 - Each source should be a separate line item in a list, so that in markdown it is rendered as a list.
 - Example format:
-  [1] Source Title: URL
-  [2] Source Title: URL
-- Citations are extremely important. Make sure to include these, and pay a lot of attention to getting these right. Users will often use these citations to look into more information.
+- [1] [Source Title](URL)
+- [2] [Source Title](URL)
+- [3] [Source Title](URL)
+- IMPORTANT: DO NOT include inline citations in the text. Instead, track all sources and include a References section at the end using link reference format.
 </Citation Rules>
 </report_instructions>
 
