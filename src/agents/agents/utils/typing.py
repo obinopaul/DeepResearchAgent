@@ -16,7 +16,7 @@ __all__ = (
     "ContextT",
 )
 
-StateT = TypeVar("StateT", bound=StateLike)
+StateT = TypeVar("StateT", bound=StateLike, default=StateLike)
 """Type variable used to represent the state in a graph."""
 
 StateT_co = TypeVar("StateT_co", bound=StateLike, covariant=True)

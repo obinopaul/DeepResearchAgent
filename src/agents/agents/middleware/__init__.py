@@ -1,6 +1,7 @@
 """Middleware plugins for agents."""
 
-from .human_in_the_loop import HumanInTheLoopMiddleware
+from .human_in_the_loop import HumanInTheLoopMiddleware, InterruptOnConfig
+from .todo import TodoListMiddleware
 from .planning import PlanningMiddleware
 from .prompt_caching import AnthropicPromptCachingMiddleware
 from .summarization import SummarizationMiddleware
@@ -20,6 +21,8 @@ __all__ = [
     # should move to langchain-anthropic if we decide to keep it
     "AnthropicPromptCachingMiddleware",
     "HumanInTheLoopMiddleware",
+    "TodoListMiddleware",
+    "InterruptOnConfig",
     "ModelRequest",
     "PlanningMiddleware",
     "SummarizationMiddleware",

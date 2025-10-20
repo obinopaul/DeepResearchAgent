@@ -9,6 +9,7 @@ from typing_extensions import NotRequired, TypedDict
 
 from src.agents.agents.middleware.types import AgentMiddleware, AgentState
 
+DecisionType = Literal["approve", "edit", "reject"]
 
 class HumanInTheLoopConfig(TypedDict):
     """Configuration that defines what actions are allowed for a human interrupt.
@@ -148,6 +149,62 @@ class ToolConfig(TypedDict):
     """
 
 
+class _DescriptionFactory(Protocol):
+    """Callable that generates a description for a tool call."""
+
+    def __call__(self, tool_call: ToolCall, state: AgentState, runtime: Runtime) -> str:
+        """Generate a description for a tool call."""
+        ...
+
+
+class InterruptOnConfig(TypedDict):
+    """Configuration for an action requiring human in the loop.
+
+    This is the configuration format used in the `HumanInTheLoopMiddleware.__init__`
+    method.
+    """
+
+    allowed_decisions: list[DecisionType]
+    """The decisions that are allowed for this action."""
+
+    description: NotRequired[str | _DescriptionFactory]
+    """The description attached to the request for human input.
+
+    Can be either:
+
+    - A static string describing the approval request
+    - A callable that dynamically generates the description based on agent state,
+        runtime, and tool call information
+
+    Example:
+        ```python
+        # Static string description
+        config = ToolConfig(
+            allowed_decisions=["approve", "reject"],
+            description="Please review this tool execution"
+        )
+
+        # Dynamic callable description
+        def format_tool_description(
+            tool_call: ToolCall,
+            state: AgentState,
+            runtime: Runtime
+        ) -> str:
+            import json
+            return (
+                f"Tool: {tool_call['name']}\\n"
+                f"Arguments:\\n{json.dumps(tool_call['args'], indent=2)}"
+            )
+
+        config = InterruptOnConfig(
+            allowed_decisions=["approve", "edit", "reject"],
+            description=format_tool_description
+        )
+        ```
+    """
+    args_schema: NotRequired[dict[str, Any]]
+    """JSON schema for the args associated with the action, if edits are allowed."""
+    
 class HumanInTheLoopMiddleware(AgentMiddleware):
     """Human in the loop middleware."""
 

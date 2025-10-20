@@ -6,10 +6,32 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Set
 
-from langchain_milvus.vectorstores import Milvus as LangchainMilvus
-from langchain_openai import OpenAIEmbeddings
-from openai import OpenAI
-from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
+_MILVUS_DEPS_AVAILABLE = True
+
+try:
+    from langchain_milvus.vectorstores import Milvus as LangchainMilvus
+except ImportError:  # pragma: no cover - optional dependency
+    LangchainMilvus = None  # type: ignore[assignment]
+    _MILVUS_DEPS_AVAILABLE = False
+
+try:
+    from langchain_openai import OpenAIEmbeddings
+except ImportError:  # pragma: no cover - optional dependency
+    OpenAIEmbeddings = None  # type: ignore[assignment]
+    _MILVUS_DEPS_AVAILABLE = False
+
+try:
+    from openai import OpenAI
+except ImportError:  # pragma: no cover - optional dependency
+    OpenAI = None  # type: ignore[assignment]
+    _MILVUS_DEPS_AVAILABLE = False
+
+try:
+    from pymilvus import CollectionSchema, DataType, FieldSchema, MilvusClient
+except ImportError:  # pragma: no cover - optional dependency
+    CollectionSchema = FieldSchema = MilvusClient = None  # type: ignore[assignment]
+    DataType = None  # type: ignore[assignment]
+    _MILVUS_DEPS_AVAILABLE = False
 
 from src.config.loader import get_bool_env, get_int_env, get_str_env
 from src.rag.retriever import Chunk, Document, Resource, Retriever
@@ -21,6 +43,10 @@ class DashscopeEmbeddings:
     """OpenAI-compatible embeddings wrapper."""
 
     def __init__(self, **kwargs: Any) -> None:
+        if OpenAI is None:
+            raise ImportError(
+                "The openai python package is required for Dashscope embeddings. Install it with `pip install openai`."
+            )
         self._client: OpenAI = OpenAI(
             api_key=kwargs.get("api_key", ""), base_url=kwargs.get("base_url", "")
         )
@@ -67,6 +93,10 @@ class MilvusRetriever(Retriever):
     """
 
     def __init__(self) -> None:
+        if not _MILVUS_DEPS_AVAILABLE:
+            raise ImportError(
+                "Milvus integration requires `langchain-milvus`, `langchain-openai`, `pymilvus`, and `openai`."
+            )
         # --- Connection / collection configuration ---
         self.uri: str = get_str_env("MILVUS_URI", "http://localhost:19530")
         self.user: str = get_str_env("MILVUS_USER")
@@ -114,6 +144,10 @@ class MilvusRetriever(Retriever):
             "dimensions": self.embedding_dim,
         }
         if self.embedding_provider.lower() == "openai":
+            if OpenAIEmbeddings is None:
+                raise ImportError(
+                    "langchain-openai is required for OpenAI embeddings. Install it with `pip install langchain-openai`."
+                )
             self.embedding_model = OpenAIEmbeddings(**kwargs)
         elif self.embedding_provider.lower() == "dashscope":
             self.embedding_model = DashscopeEmbeddings(**kwargs)

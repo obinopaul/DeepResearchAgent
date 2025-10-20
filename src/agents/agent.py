@@ -46,14 +46,14 @@ def deep_agent(
     research_sub_agent = {
         "name": "research-agent",
         "description": "Used to research more in depth questions. Only give this researcher one topic at a time. Do not pass multiple sub questions to this researcher. Instead, you should break down a large topic into the necessary components, and then call multiple research agents in parallel, one for each sub question.",
-        "prompt": sub_research_prompt,
+        "system_prompt": sub_research_prompt,
         "tools": tools,
     }
 
     critique_sub_agent = {
         "name": "critique-agent",
         "description": "Used to critique the final report. Give this agent some information about how you want it to critique the report.",
-        "prompt": sub_critique_prompt,
+        "system_prompt": sub_critique_prompt,
     }
 
     query_optimizer_sub_agent = {
@@ -62,7 +62,7 @@ def deep_agent(
             "Refines broad or ambiguous requests into precise, high-signal research directives "
             "and highlights assumptions that must be validated."
         ),
-        "prompt": sub_query_optimizer_prompt,
+        "system_prompt": sub_query_optimizer_prompt,
         "tools": [],
     }
 
@@ -71,7 +71,7 @@ def deep_agent(
         "description": (
             "Transforms raw crawled material into relevance-scored insights with evidence, implications and gaps."
         ),
-        "prompt": sub_insight_extractor_prompt,
+        "system_prompt": sub_insight_extractor_prompt,
         "tools": tools,
     }
 
@@ -80,7 +80,7 @@ def deep_agent(
         "description": (
             "Identifies high-leverage follow-up investigations, counterfactual checks, and monitoring hooks."
         ),
-        "prompt": sub_followup_prompt,
+        "system_prompt": sub_followup_prompt,
         "tools": [],
     }
 
@@ -89,7 +89,7 @@ def deep_agent(
         "description": (
             "Audits draft findings for evidentiary strength, missing citations, quantitative accuracy, and risk coverage."
         ),
-        "prompt": sub_evidence_auditor_prompt,
+        "system_prompt": sub_evidence_auditor_prompt,
         "tools": tools,
     }
 
@@ -106,11 +106,11 @@ def deep_agent(
     # Always use the dedicated deepagent LLM type for orchestration, independent of the caller's agent_type
     return create_deep_agent(
         # name=agent_name,
-        model=get_llm_by_type(AGENT_LLM_MAP["deepagent_openai"]),
+        model=get_llm_by_type(AGENT_LLM_MAP["deepagent_deepseek"]),
         tools=tools,
         subagents=all_subagents,
         # instructions =lambda state: apply_prompt_template(prompt_template, state),
-        instructions=prompt_template,
+        system_prompt=prompt_template,
         # pre_model_hook=pre_model_hook,
     ).with_config({"recursion_limit": 1000})
     

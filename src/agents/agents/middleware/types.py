@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from inspect import iscoroutinefunction
+from typing import TypeAlias
 from typing import (
     TYPE_CHECKING,
     Annotated,
@@ -87,7 +88,17 @@ class ModelResponse:
 
     structured_response: Any = None
     """Parsed structured output if response_format was specified, None otherwise."""
-    
+
+
+# Type alias for middleware return type - allows returning either full response or just AIMessage
+ModelCallResult: TypeAlias = "ModelResponse | AIMessage"
+"""Type alias for model call handler return value.
+
+Middleware can return either:
+- ModelResponse: Full response with messages and optional structured output
+- AIMessage: Simplified return for simple use cases
+"""
+
     
 @dataclass
 class OmitFromSchema:

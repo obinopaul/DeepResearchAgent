@@ -4,13 +4,20 @@
 import { PythonOutlined } from "@ant-design/icons";
 import { motion } from "framer-motion";
 import { LRUCache } from "lru-cache";
-import { BookOpenText, FileText, PencilRuler, Search } from "lucide-react";
+import { CheckCircle2, ChevronDown, Circle, Loader2 } from "lucide-react";
+import {
+  BookOpenText,
+  FileText,
+  PencilRuler,
+  Search,
+} from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useTheme } from "next-themes";
-import { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import SyntaxHighlighter from "react-syntax-highlighter";
 import { docco } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { dark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { useShallow } from "zustand/react/shallow";
 
 import { FavIcon } from "~/components/deer-flow/fav-icon";
 import Image from "~/components/deer-flow/image";
@@ -24,9 +31,23 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "~/components/ui/accordion";
+import { Badge } from "~/components/ui/badge";
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "~/components/ui/collapsible";
 import { Skeleton } from "~/components/ui/skeleton";
+
+const MAX_ANIMATED_ACTIVITY_ITEMS = 10;
+const ACTIVITY_ANIMATION_DELAY = 0.05;
+const MAX_PAGE_RESULTS = 20;
+const MAX_PAGE_ANIMATIONS = 6;
+const MAX_IMAGE_RESULTS = 10;
+const MAX_IMAGE_ANIMATIONS = 4;
+const MAX_DOCUMENT_ANIMATIONS = 4;
 import { findMCPTool } from "~/core/mcp";
-import type { ToolCallRuntime } from "~/core/messages";
+import type { Message, ToolCallRuntime } from "~/core/messages";
 import { useMessage, useStore } from "~/core/store";
 import { parseJSON } from "~/core/utils";
 import { cn } from "~/lib/utils";
@@ -42,35 +63,670 @@ export function ResearchActivitiesBlock({
     state.researchActivityIds.get(researchId),
   )!;
   const ongoing = useStore((state) => state.ongoingResearchId === researchId);
+  const planMessageId = activityIds[0];
+  const timelineActivityIds = activityIds.slice(1);
+  const activityMessages = useStore(
+    useShallow((state) =>
+      timelineActivityIds
+        .map((id) => state.messages.get(id))
+        .filter((message): message is Message => Boolean(message)),
+    ),
+  );
   return (
-    <>
-      <ul className={cn("flex flex-col py-4", className)}>
-        {activityIds.map(
-          (activityId, i) =>
-            i !== 0 && (
+    <div className={cn("flex flex-col gap-4", className)}>
+      {planMessageId && (
+        <div className="sticky top-2 z-20">
+          <PlanActivityOverview
+            planMessageId={planMessageId}
+            ongoing={ongoing}
+            activityMessages={activityMessages}
+          />
+        </div>
+      )}
+      <div className="relative">
+        <ul className="flex flex-col py-4">
+          {timelineActivityIds.map((activityId, i) => {
+            const shouldAnimate = i < MAX_ANIMATED_ACTIVITY_ITEMS;
+            const animationDelay = shouldAnimate
+              ? Math.min(i * ACTIVITY_ANIMATION_DELAY, 0.5)
+              : 0;
+            return (
               <motion.li
                 key={activityId}
-                style={{ transition: "all 0.4s ease-out" }}
-                initial={{ opacity: 0, y: 24 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{
-                  duration: 0.4,
-                  ease: "easeOut",
+                style={{
+                  transition: shouldAnimate ? "all 0.3s ease-out" : "none",
                 }}
+                initial={shouldAnimate ? { opacity: 0, y: 24 } : { opacity: 1, y: 0 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={
+                  shouldAnimate
+                    ? {
+                        duration: 0.3,
+                        delay: animationDelay,
+                        ease: "easeOut",
+                      }
+                    : undefined
+                }
               >
                 <ActivityMessage messageId={activityId} />
                 <ActivityListItem messageId={activityId} />
-                {i !== activityIds.length - 1 && <hr className="my-8" />}
+                {i !== timelineActivityIds.length - 1 && <hr className="my-8" />}
               </motion.li>
-            ),
-        )}
-      </ul>
-      {ongoing && <LoadingAnimation className="mx-4 my-12" />}
-    </>
+            );
+          })}
+        </ul>
+        {ongoing && <LoadingAnimation className="mx-4 my-12" />}
+      </div>
+    </div>
   );
 }
 
-function ActivityMessage({ messageId }: { messageId: string }) {
+type TodoStatus = "pending" | "in_progress" | "completed";
+
+interface DerivedStep {
+  index: number;
+  title: string;
+  description: string;
+  status: TodoStatus;
+  rawContent?: string;
+}
+
+interface PlanStepLike {
+  title?: string;
+  description?: string;
+  status?: string;
+  content?: string;
+}
+
+function pickFirstFilledText(
+  ...values: Array<string | null | undefined>
+): string | undefined {
+  for (const value of values) {
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+  }
+  return undefined;
+}
+
+function hasMeaningfulTodo(item?: TodoItemLike | null) {
+  if (!item) return false;
+  return Boolean(
+    pickFirstFilledText(item.content, item.title, item.description),
+  );
+}
+
+interface ToolActivitySummary {
+  status: "running" | "finished";
+  tool: "web_search" | "crawl_tool" | "local_search_tool" | "python_repl_tool";
+  text: string;
+}
+function PlanActivityOverview({
+  planMessageId,
+  ongoing,
+  activityMessages,
+}: {
+  planMessageId: string;
+  ongoing: boolean;
+  activityMessages: Message[];
+}) {
+  const planMessage = useMessage(planMessageId);
+
+  const planPayload = useMemo(() => {
+    const parsed = parseJSON<Record<string, unknown> | null>(
+      planMessage?.content,
+      null,
+    );
+    if (!parsed) {
+      return null;
+    }
+    const steps = Array.isArray(parsed.steps)
+      ? parsed.steps
+          .map((step) => normalizePlanStep(step))
+          .filter((step): step is PlanStepLike => step !== null)
+      : [];
+    const title =
+      typeof parsed.title === "string" && parsed.title.trim()
+        ? parsed.title.trim()
+        : "Research Plan";
+    return { title, steps };
+  }, [planMessage?.content]);
+
+  const todos = useMemo(
+    () => extractTodosFromMessages(activityMessages),
+    [activityMessages],
+  );
+
+  const steps = useMemo<DerivedStep[]>(() => {
+    const derived = deriveSteps(planPayload, todos, ongoing);
+    return derived;
+  }, [ongoing, planPayload, todos]);
+
+  const progress = useMemo(() => computeProgress(steps, ongoing), [steps, ongoing]);
+  const latestAction = useMemo(
+    () => extractLatestToolActivity(activityMessages),
+    [activityMessages],
+  );
+
+  const [expanded, setExpanded] = useState(true);
+
+  if (!planPayload && !steps.length) {
+    return (
+      <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          <span className="text-sm font-medium text-muted-foreground">
+            Preparing research plan…
+          </span>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          The planner is generating actionable steps for this deep agent run.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <Collapsible
+      open={expanded}
+      onOpenChange={setExpanded}
+      className={cn(
+        "rounded-2xl border border-border/60 bg-card/95 shadow-sm",
+        "supports-[backdrop-filter]:backdrop-blur",
+      )}
+    >
+        <CollapsibleTrigger asChild>
+          <button
+            type="button"
+            className="flex w-full items-start justify-between gap-3 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-card/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+            aria-expanded={expanded}
+        >
+          <div className="flex flex-1 flex-col gap-1">
+            <p className="text-xs uppercase tracking-wide text-muted-foreground">
+              Deep Agent Plan
+            </p>
+            <h3
+              className={cn(
+                "font-semibold leading-tight",
+                expanded ? "text-lg" : "text-sm",
+              )}
+            >
+              {planPayload?.title ?? "Research Plan"}
+            </h3>
+            {!expanded && (
+              <p className="text-xs text-muted-foreground">
+                {progress.percent >= 100
+                  ? "Plan completed"
+                  : `${progress.completed}/${steps.length} steps complete · ${Math.round(progress.percent)}%`}
+              </p>
+            )}
+          </div>
+          <div className="flex items-center gap-3">
+            {steps.length > 0 && (
+              <Badge
+                variant="outline"
+                className="text-[11px] font-semibold uppercase tracking-tight text-muted-foreground"
+              >
+                {progress.completed}/{steps.length} steps
+              </Badge>
+            )}
+            <div className="flex h-8 w-8 items-center justify-center rounded-full border border-muted-foreground/40 bg-muted/40 text-muted-foreground transition-transform">
+              <ChevronDown
+                className={cn(
+                  "h-4 w-4 transition-transform duration-300",
+                  expanded && "-rotate-180",
+                )}
+              />
+            </div>
+          </div>
+        </button>
+      </CollapsibleTrigger>
+      <CollapsibleContent className="px-4 pb-4">
+        <div className="space-y-4">
+          {steps.length > 0 && (
+            <div>
+              <div className="relative h-2 rounded-full bg-muted/60">
+                <div
+                  className={cn(
+                    "absolute left-0 top-0 h-2 rounded-full bg-primary transition-all duration-500",
+                    progress.percent === 0 && "bg-primary/60",
+                  )}
+                  style={{ width: `${progress.percent}%` }}
+                />
+              </div>
+              <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+                <span>
+                  {progress.percent >= 100
+                    ? "Plan completed"
+                    : ongoing
+                      ? "Agent is executing tasks"
+                      : "Awaiting agent activity"}
+                </span>
+                <span>{Math.round(progress.percent)}%</span>
+              </div>
+            </div>
+          )}
+
+          {progress.activeStep && (
+            <div className="rounded-xl border border-dashed border-primary/40 bg-background/80 p-3">
+              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+                Active Step
+              </div>
+              <p className="mt-2 text-sm font-medium">
+                {progress.activeStep.index + 1}. {progress.activeStep.title}
+              </p>
+              {progress.activeStep.description && (
+                <p className="mt-1 text-xs text-muted-foreground">
+                  {progress.activeStep.description}
+                </p>
+              )}
+              {latestAction && (
+                <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
+                  {renderToolIcon(latestAction.tool, "h-4 w-4 text-primary/80")}
+                  <span>{latestAction.text}</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
+            {steps.map((step) => (
+              <PlanStepRow key={step.index} step={step} />
+            ))}
+          </div>
+        </div>
+        </CollapsibleContent>
+    </Collapsible>
+  );
+}
+
+function PlanStepRow({ step }: { step: DerivedStep }) {
+  const statusMeta = getStatusMeta(step.status);
+  return (
+    <div
+      className={cn(
+        "flex items-start gap-3 rounded-xl border border-transparent px-3 py-2 transition-colors",
+        step.status === "in_progress" && "border-primary/40 bg-primary/5",
+        step.status === "completed" && "bg-muted/40",
+        step.status === "pending" && "hover:bg-muted/30",
+      )}
+    >
+      <div
+        className={cn(
+          "mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border text-xs",
+          statusMeta.indicatorClassName,
+        )}
+      >
+        {statusMeta.icon}
+      </div>
+      <div className="flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-medium leading-snug">
+            {step.index + 1}. {step.title}
+          </p>
+          <Badge
+            variant={step.status === "pending" ? "outline" : "secondary"}
+            className={cn(
+              "text-[10px] uppercase tracking-wide",
+              step.status === "pending" && "bg-transparent text-muted-foreground",
+            )}
+          >
+            {statusMeta.label}
+          </Badge>
+        </div>
+        {step.description && (
+          <p className="mt-1 text-xs text-muted-foreground">{step.description}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function getStatusMeta(status: TodoStatus) {
+  switch (status) {
+    case "completed":
+      return {
+        label: "Completed",
+        icon: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />,
+        indicatorClassName:
+          "border-transparent bg-emerald-500/10 text-emerald-500",
+      };
+    case "in_progress":
+      return {
+        label: "In progress",
+        icon: <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />,
+        indicatorClassName: "border-primary/60 bg-primary/10 text-primary",
+      };
+    default:
+      return {
+        label: "Pending",
+        icon: <Circle className="h-3.5 w-3.5 text-muted-foreground" />,
+        indicatorClassName:
+          "border-dashed border-muted-foreground/40 text-muted-foreground",
+      };
+  }
+}
+
+type TodoItemLike = {
+  content?: string;
+  description?: string;
+  title?: string;
+  status?: string;
+};
+
+function normalizePlanStep(step: unknown): PlanStepLike | null {
+  if (!step || typeof step !== "object") return null;
+  const record = step as Record<string, unknown>;
+  const title =
+    getStringField(record, "title") ?? getStringField(record, "name");
+  const description =
+    getStringField(record, "description") ?? getStringField(record, "detail");
+  const status = getStringField(record, "status");
+  const content =
+    getStringField(record, "content") ?? getStringField(record, "task");
+  return { title, description, status, content };
+}
+
+function getStringField(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function deriveSteps(
+  planPayload: { steps: PlanStepLike[] } | null,
+  todos: TodoItemLike[] | null,
+  ongoing: boolean,
+): DerivedStep[] {
+  const planSteps = planPayload?.steps ?? [];
+  const todoSteps = todos ?? [];
+  const maxLength = Math.max(planSteps.length, todoSteps.length);
+
+  const derived: DerivedStep[] = [];
+  for (let i = 0; i < maxLength; i += 1) {
+    const planStep = planSteps[i];
+    const todoStep = todoSteps[i];
+
+    const title =
+      pickFirstFilledText(
+        planStep?.title,
+        planStep?.content,
+        todoStep?.title,
+        todoStep?.content,
+      ) ?? `Step ${i + 1}`;
+    const description =
+      pickFirstFilledText(
+        planStep?.description,
+        todoStep?.description,
+        todoStep?.content,
+      ) ?? "";
+    const statusCandidate =
+      (typeof todoStep?.status === "string" ? todoStep.status : null) ??
+      planStep?.status;
+
+    derived.push({
+      index: i,
+      title,
+      description,
+      status: normalizeStatus(statusCandidate),
+      rawContent: todoStep?.content ?? planStep?.content,
+    });
+  }
+
+  if (ongoing) {
+    const hasActive = derived.some((step) => step.status === "in_progress");
+    if (!hasActive) {
+      const firstPending = derived.find((step) => step.status === "pending");
+      if (firstPending) {
+        firstPending.status = "in_progress";
+      }
+    }
+  }
+
+  return derived;
+}
+
+function normalizeStatus(status?: string | null): TodoStatus {
+  if (!status) return "pending";
+  const normalized = status.toLowerCase().replace(/[\s-]+/g, "_");
+  if (
+    normalized.includes("complete") ||
+    normalized === "done" ||
+    normalized === "finished" ||
+    normalized === "success"
+  ) {
+    return "completed";
+  }
+  if (
+    normalized.includes("progress") ||
+    normalized.includes("active") ||
+    normalized.includes("working") ||
+    normalized.includes("current")
+  ) {
+    return "in_progress";
+  }
+  return "pending";
+}
+
+function computeProgress(steps: DerivedStep[], ongoing: boolean) {
+  const total = steps.length;
+  const completed = steps.filter((step) => step.status === "completed").length;
+  const percent = total === 0 ? 0 : (completed / total) * 100;
+  const activeStep =
+    steps.find((step) => step.status === "in_progress") ??
+    (ongoing ? steps.find((step) => step.status === "pending") : undefined);
+  return {
+    completed,
+    total,
+    percent: Number.isFinite(percent) ? percent : 0,
+    activeStep,
+  };
+}
+
+function extractTodosFromMessages(
+  messages: Message[],
+): TodoItemLike[] | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (!message) {
+      continue;
+    }
+    const fromContent = parseTodoPayload(message.content);
+    if (fromContent?.length) {
+      return fromContent;
+    }
+    if (message.toolCalls?.length) {
+      for (const toolCall of message.toolCalls) {
+        if (!toolCall) continue;
+        if (typeof toolCall.result === "string") {
+          const fromResult = parseTodoPayload(toolCall.result);
+          if (fromResult?.length) {
+            return fromResult;
+          }
+        }
+        if (typeof toolCall.args === "string") {
+          const fromArgs = parseTodoPayload(toolCall.args);
+          if (fromArgs?.length) {
+            return fromArgs;
+          }
+        }
+      }
+    }
+  }
+  return null;
+}
+
+function parseTodoPayload(payload: string | null | undefined) {
+  if (!payload) return null;
+  const parsed = parseJSON<unknown>(payload, null);
+  return normalizeTodoValue(parsed);
+}
+
+function normalizeTodoValue(value: unknown): TodoItemLike[] | null {
+  if (Array.isArray(value)) {
+    const todos = value
+      .map((item) => normalizeTodoItem(item))
+      .filter((item): item is TodoItemLike => hasMeaningfulTodo(item));
+    return todos.length ? todos : null;
+  }
+  if (value && typeof value === "object") {
+    const record = value as { todos?: unknown };
+    if (Array.isArray(record.todos)) {
+      const todos = record.todos
+        .map((item) => normalizeTodoItem(item))
+        .filter((item): item is TodoItemLike => hasMeaningfulTodo(item));
+      return todos.length ? todos : null;
+    }
+  }
+  return null;
+}
+
+function normalizeTodoItem(item: unknown): TodoItemLike | null {
+  if (!item || typeof item !== "object") return null;
+  const record = item as (Partial<TodoItemLike> & { state?: string });
+  const contentCandidate = pickFirstFilledText(
+    record.content,
+    record.title,
+    record.description,
+  );
+  const description =
+    typeof record.description === "string" ? record.description : undefined;
+  const title = typeof record.title === "string" ? record.title : undefined;
+  const status =
+    typeof record.status === "string"
+      ? record.status
+      : typeof record.state === "string"
+        ? record.state
+        : undefined;
+  return {
+    content: contentCandidate,
+    description,
+    title,
+    status,
+  };
+}
+
+const SUMMARY_TOOLS = new Set([
+  "web_search",
+  "crawl_tool",
+  "local_search_tool",
+  "python_repl_tool",
+]);
+
+function extractLatestToolActivity(
+  messages: Message[],
+): ToolActivitySummary | null {
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const message = messages[i];
+    if (!message?.toolCalls?.length) continue;
+    for (let j = message.toolCalls.length - 1; j >= 0; j -= 1) {
+      const toolCall = message.toolCalls[j];
+      if (!toolCall || !SUMMARY_TOOLS.has(toolCall.name)) continue;
+      const normalizedArgs = normalizeToolArgs(toolCall.args);
+      const status = toolCall.result === undefined ? "running" : "finished";
+      let text = "";
+
+      switch (toolCall.name) {
+        case "web_search": {
+          const query =
+            typeof normalizedArgs.query === "string"
+              ? normalizedArgs.query
+              : typeof normalizedArgs.__raw === "string"
+                ? normalizedArgs.__raw
+                : "";
+          text = query
+            ? status === "running"
+              ? `Searching for “${query}”`
+              : `Search complete for “${query}”`
+            : status === "running"
+              ? "Searching the web…"
+              : "Search complete";
+          break;
+        }
+        case "crawl_tool": {
+          const url =
+            typeof normalizedArgs.url === "string"
+              ? normalizedArgs.url
+              : typeof normalizedArgs.start_url === "string"
+                ? normalizedArgs.start_url
+                : "";
+          text = url
+            ? status === "running"
+              ? `Crawling ${truncateText(url, 60)}`
+              : `Crawl finished for ${truncateText(url, 60)}`
+            : status === "running"
+              ? "Crawling content…"
+              : "Crawl finished";
+          break;
+        }
+        case "local_search_tool": {
+          const query =
+            typeof normalizedArgs.query === "string"
+              ? normalizedArgs.query
+              : typeof normalizedArgs.question === "string"
+                ? normalizedArgs.question
+                : "";
+          text = query
+            ? status === "running"
+              ? `Scanning local resources for “${query}”`
+              : `Local search complete for “${query}”`
+            : status === "running"
+              ? "Scanning local resources…"
+              : "Local search complete";
+          break;
+        }
+        case "python_repl_tool": {
+          text =
+            status === "running"
+              ? "Executing Python snippet…"
+              : "Python execution finished";
+          break;
+        }
+        default:
+          break;
+      }
+
+      if (text) {
+        return {
+          status,
+          tool: toolCall.name as ToolActivitySummary["tool"],
+          text,
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function renderToolIcon(
+  tool: ToolActivitySummary["tool"],
+  className?: string,
+) {
+  const baseClass = className ?? "h-4 w-4";
+  if (tool === "web_search") {
+    return <Search className={baseClass} />;
+  }
+  if (tool === "crawl_tool") {
+    return <FileText className={baseClass} />;
+  }
+  if (tool === "local_search_tool") {
+    return <BookOpenText className={baseClass} />;
+  }
+  return <PythonOutlined className={baseClass} />;
+}
+
+function truncateText(value: string, max = 80) {
+  if (value.length <= max) return value;
+  return `${value.slice(0, max - 1)}…`;
+}
+
+const ActivityMessage = React.memo(({ messageId }: { messageId: string }) => {
   const message = useMessage(messageId);
   if (message?.agent) {
     if (message.agent === "researcher" && message.isStreaming) {
@@ -109,8 +765,8 @@ function ActivityMessage({ messageId }: { messageId: string }) {
             return false;
           }
           if (t.startsWith("Running ")) {
-            const m = t.match(/^Running\s+([a-zA-Z0-9_]+)\s*\(\)\s*$/);
-            if (m && blockedTools.has(m[1]!)) {
+            const match = /^Running\s+([a-zA-Z0-9_]+)\s*\(\)\s*$/.exec(t);
+            if (match && blockedTools.has(match[1]!)) {
               return false;
             }
           }
@@ -139,9 +795,10 @@ function ActivityMessage({ messageId }: { messageId: string }) {
     }
   }
   return null;
-}
+});
+ActivityMessage.displayName = "ActivityMessage";
 
-function ActivityListItem({ messageId }: { messageId: string }) {
+const ActivityListItem = React.memo(({ messageId }: { messageId: string }) => {
   const message = useMessage(messageId);
   if (message) {
     // Render allowed tools as soon as we see tool calls, even while streaming
@@ -180,7 +837,8 @@ function ActivityListItem({ messageId }: { messageId: string }) {
     }
   }
   return null;
-}
+});
+ActivityListItem.displayName = "ActivityListItem";
 
 const __pageCache = new LRUCache<string, string>({ max: 100 });
 type SearchResult =
@@ -197,6 +855,10 @@ type SearchResult =
   };
 
 type NormalizedToolArgs = Record<string, unknown> & { __raw?: string };
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return value != null && typeof value === "object" && !Array.isArray(value);
+}
 
 function normalizeToolArgs(args: ToolCallRuntime["args"]): NormalizedToolArgs {
   if (args == null) {
@@ -222,15 +884,15 @@ function normalizeToolArgs(args: ToolCallRuntime["args"]): NormalizedToolArgs {
   if (Array.isArray(args)) {
     const entries: Record<string, unknown> = {};
     args.forEach((item) => {
-      if (item && typeof item === "object") {
+      if (isPlainObject(item)) {
         const key =
-          typeof (item as Record<string, unknown>).key === "string"
-            ? ((item as Record<string, unknown>).key as string)
-            : typeof (item as Record<string, unknown>).name === "string"
-              ? ((item as Record<string, unknown>).name as string)
+          typeof item.key === "string"
+            ? item.key
+            : typeof item.name === "string"
+              ? item.name
               : undefined;
         if (key) {
-          entries[key] = (item as Record<string, unknown>).value;
+          entries[key] = item.value;
         }
       }
     });
@@ -240,19 +902,14 @@ function normalizeToolArgs(args: ToolCallRuntime["args"]): NormalizedToolArgs {
     };
   }
 
-  if (typeof args === "object") {
-    const recordArgs = args as Record<string, unknown>;
-    const flattened = { ...recordArgs };
-    if (
-      recordArgs.input &&
-      typeof recordArgs.input === "object" &&
-      !Array.isArray(recordArgs.input)
-    ) {
-      Object.assign(flattened, recordArgs.input as Record<string, unknown>);
+  if (isPlainObject(args)) {
+    const flattened = { ...args };
+    if (isPlainObject(args.input)) {
+      Object.assign(flattened, args.input);
     }
     return {
       ...flattened,
-      __raw: JSON.stringify(recordArgs),
+      __raw: JSON.stringify(args),
     };
   }
 
@@ -267,7 +924,7 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
     [toolCall.args],
   );
   const query = useMemo(() => {
-    const value = normalizedArgs["query"];
+    const value = normalizedArgs.query;
     if (typeof value === "string" && value.trim()) {
       return value.trim();
     }
@@ -349,55 +1006,71 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
                 </li>
               ))}
             {pageResults
-              .filter((result) => result.type === "page")
-              .map((searchResult, i) => (
-                <motion.li
-                  key={`search-result-${i}`}
-                  className="text-muted-foreground bg-accent flex max-w-40 gap-2 rounded-md px-2 py-1 text-sm"
-                  initial={{ opacity: 0, y: 10, scale: 0.66 }}
-                  animate={{ opacity: 1, y: 0, scale: 1 }}
-                  transition={{
-                    duration: 0.2,
-                    delay: i * 0.1,
-                    ease: "easeOut",
-                  }}
-                >
-                  <FavIcon
-                    className="mt-1"
-                    url={searchResult.url}
-                    title={searchResult.title}
-                  />
-                  <a href={searchResult.url} target="_blank">
-                    {searchResult.title}
-                  </a>
-                </motion.li>
-              ))}
-            {imageResults.map((searchResult, i) => (
-              <motion.li
-                key={`search-result-${i}`}
-                initial={{ opacity: 0, y: 10, scale: 0.66 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{
-                  duration: 0.2,
-                  delay: i * 0.1,
-                  ease: "easeOut",
-                }}
-              >
-                <a
-                  className="flex flex-col gap-2 overflow-hidden rounded-md opacity-75 transition-opacity duration-300 hover:opacity-100"
-                  href={searchResult.image_url}
-                  target="_blank"
-                >
-                  <Image
-                    src={searchResult.image_url}
-                    alt={searchResult.image_description}
-                    className="bg-accent h-40 w-40 max-w-full rounded-md bg-cover bg-center bg-no-repeat"
-                    imageClassName="hover:scale-110"
-                    imageTransition
-                  />
-                </a>
-              </motion.li>
-            ))}
+              .slice(0, MAX_PAGE_RESULTS)
+              .map((searchResult, i) => {
+                const shouldAnimate = i < MAX_PAGE_ANIMATIONS;
+                return (
+                  <motion.li
+                    key={`search-result-${i}`}
+                    className="text-muted-foreground bg-accent flex max-w-40 gap-2 rounded-md px-2 py-1 text-sm"
+                    initial={shouldAnimate ? { opacity: 0, y: 10 } : { opacity: 1, y: 0 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={
+                      shouldAnimate
+                        ? {
+                            duration: 0.15,
+                            delay: Math.min(i * 0.05, 0.3),
+                            ease: "easeOut",
+                          }
+                        : undefined
+                    }
+                  >
+                    <FavIcon
+                      className="mt-1"
+                      url={searchResult.url}
+                      title={searchResult.title}
+                    />
+                    <a href={searchResult.url} target="_blank">
+                      {searchResult.title}
+                    </a>
+                  </motion.li>
+                );
+              })}
+            {imageResults
+              .slice(0, MAX_IMAGE_RESULTS)
+              .map((searchResult, i) => {
+                const shouldAnimate = i < MAX_IMAGE_ANIMATIONS;
+                return (
+                  <motion.li
+                    key={`search-result-image-${i}`}
+                    initial={shouldAnimate ? { opacity: 0, y: 10 } : { opacity: 1, y: 0 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={
+                      shouldAnimate
+                        ? {
+                            duration: 0.15,
+                            delay: Math.min(i * 0.05, 0.2),
+                            ease: "easeOut",
+                          }
+                        : undefined
+                    }
+                  >
+                    <a
+                      className="flex flex-col gap-2 overflow-hidden rounded-md opacity-75 transition-opacity duration-300 hover:opacity-100"
+                      href={searchResult.image_url}
+                      target="_blank"
+                    >
+                      <Image
+                        src={searchResult.image_url}
+                        alt={searchResult.image_description}
+                        className="bg-accent h-40 w-40 max-w-full rounded-md bg-cover bg-center bg-no-repeat"
+                        imageClassName="hover:scale-110"
+                        imageTransition
+                      />
+                    </a>
+                  </motion.li>
+                );
+              })}
           </ul>
         )}
       </div>
@@ -436,10 +1109,10 @@ function CrawlToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
       <ul className="mt-2 flex flex-wrap gap-4">
         <motion.li
           className="text-muted-foreground bg-accent flex h-40 w-40 gap-2 rounded-md px-2 py-1 text-sm"
-          initial={{ opacity: 0, y: 10, scale: 0.66 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
           transition={{
-            duration: 0.2,
+            duration: 0.15,
             ease: "easeOut",
           }}
         >
@@ -507,22 +1180,29 @@ function RetrieverToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
                   />
                 </li>
               ))}
-            {documents?.map((doc, i) => (
-              <motion.li
-                key={`search-result-${i}`}
-                className="text-muted-foreground bg-accent flex max-w-40 gap-2 rounded-md px-2 py-1 text-sm"
-                initial={{ opacity: 0, y: 10, scale: 0.66 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{
-                  duration: 0.2,
-                  delay: i * 0.1,
-                  ease: "easeOut",
-                }}
-              >
-                <FileText size={32} />
-                {doc.title} (chunk-{i},size-{doc.content.length})
-              </motion.li>
-            ))}
+            {documents?.map((doc, i) => {
+              const shouldAnimate = i < MAX_DOCUMENT_ANIMATIONS;
+              return (
+                <motion.li
+                  key={`search-result-${i}`}
+                  className="text-muted-foreground bg-accent flex max-w-40 gap-2 rounded-md px-2 py-1 text-sm"
+                  initial={shouldAnimate ? { opacity: 0, y: 10 } : { opacity: 1, y: 0 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={
+                    shouldAnimate
+                      ? {
+                          duration: 0.15,
+                          delay: Math.min(i * 0.05, 0.2),
+                          ease: "easeOut",
+                        }
+                      : undefined
+                  }
+                >
+                  <FileText size={32} />
+                  {doc.title} (chunk-{i},size-{doc.content.length})
+                </motion.li>
+              );
+            })}
           </ul>
         )}
       </div>

@@ -20,7 +20,7 @@ from src.agents.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
 )
-from langchain.tools import InjectedToolCallId
+from langchain_core.tools import InjectedToolCallId
 
 
 class Todo(TypedDict):
@@ -172,6 +172,7 @@ class TodoListMiddleware(AgentMiddleware):
             tool_description: Custom description for the write_todos tool.
         """
         super().__init__()
+        self.name = "TodoListMiddleware"
         self.system_prompt = system_prompt
         self.tool_description = tool_description
 

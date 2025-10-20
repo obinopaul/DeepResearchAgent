@@ -8,10 +8,27 @@ from typing import Any, Dict, get_args
 
 import httpx
 from langchain_core.language_models import BaseChatModel
-from langchain_anthropic import ChatAnthropic
-from langchain_deepseek import ChatDeepSeek
-from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_openai import AzureChatOpenAI, ChatOpenAI
+
+try:
+    from langchain_anthropic import ChatAnthropic
+except ImportError:  # pragma: no cover - optional dependency
+    ChatAnthropic = None  # type: ignore[assignment]
+
+try:
+    from langchain_deepseek import ChatDeepSeek
+except ImportError:  # pragma: no cover - optional dependency
+    ChatDeepSeek = None  # type: ignore[assignment]
+
+try:
+    from langchain_google_genai import ChatGoogleGenerativeAI
+except ImportError:  # pragma: no cover - optional dependency
+    ChatGoogleGenerativeAI = None  # type: ignore[assignment]
+
+try:
+    from langchain_openai import AzureChatOpenAI, ChatOpenAI
+except ImportError:  # pragma: no cover - optional dependency
+    AzureChatOpenAI = None  # type: ignore[assignment]
+    ChatOpenAI = None  # type: ignore[assignment]
 
 from src.config import load_yaml_config
 from src.config.agents import LLMType
@@ -90,6 +107,11 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
 
     # Deepagent: prefer Anthropic for orchestration. Allow sane defaults even if no config provided.
     if llm_type == "deepagent":
+        if ChatAnthropic is None:
+            raise ImportError(
+                "langchain-anthropic is required for deepagent orchestration. "
+                "Install it with `pip install langchain-anthropic`."
+            )
         # Defaults with env overrides
         model_name = (
             merged_conf.get("model")
@@ -145,6 +167,10 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
         )
         if api_key:
             kwargs["openai_api_key"] = api_key
+        if ChatOpenAI is None:
+            raise ImportError(
+                "langchain-openai is required for deepagent_openai. Install it with `pip install langchain-openai`."
+            )
         return ChatOpenAI(**kwargs)
 
     # Deepagent: DeepSeek compatible interface.
@@ -188,6 +214,10 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
         if base_url:
             kwargs["base_url"] = base_url
 
+        if ChatDeepSeek is None:
+            raise ImportError(
+                "langchain-deepseek is required for deepagent_deepseek. Install it with `pip install langchain-deepseek`."
+            )
         return ChatDeepSeek(**kwargs)
     
     if not merged_conf:
@@ -227,9 +257,17 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
         gemini_conf.pop("http_client", None)
         gemini_conf.pop("http_async_client", None)
 
+        if ChatGoogleGenerativeAI is None:
+            raise ImportError(
+                "langchain-google-genai is required for Google AI Studio models. Install it with `pip install langchain-google-genai`."
+            )
         return ChatGoogleGenerativeAI(**gemini_conf)
 
     if "azure_endpoint" in merged_conf or os.getenv("AZURE_OPENAI_ENDPOINT"):
+        if AzureChatOpenAI is None:
+            raise ImportError(
+                "langchain-openai is required for Azure OpenAI. Install it with `pip install langchain-openai`."
+            )
         return AzureChatOpenAI(**merged_conf)
 
     # Check if base_url is dashscope endpoint
@@ -242,9 +280,17 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
 
     if llm_type == "reasoning":
         merged_conf["api_base"] = merged_conf.pop("base_url", None)
+        if ChatDeepSeek is None:
+            raise ImportError(
+                "langchain-deepseek is required for reasoning models. Install it with `pip install langchain-deepseek`."
+            )
         return ChatDeepSeek(**merged_conf)
-    else:
-        return ChatOpenAI(**merged_conf)
+
+    if ChatOpenAI is None:
+        raise ImportError(
+            "langchain-openai is required for OpenAI chat models. Install it with `pip install langchain-openai`."
+        )
+    return ChatOpenAI(**merged_conf)
 
 
 def get_llm_by_type(llm_type: LLMType) -> BaseChatModel:

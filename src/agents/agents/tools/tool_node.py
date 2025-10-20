@@ -39,7 +39,7 @@ import asyncio
 import inspect
 import json
 from copy import copy, deepcopy
-from dataclasses import replace
+from dataclasses import replace, dataclass, is_dataclass
 from types import UnionType
 from typing import (
     TYPE_CHECKING,
@@ -47,6 +47,8 @@ from typing import (
     Any,
     Literal,
     Optional,
+    TypedDict,
+    Generic,
     Union,
     cast,
     get_args,
@@ -67,11 +69,27 @@ from langchain_core.runnables.config import (
     get_executor_for_config,
 )
 from langchain_core.tools import BaseTool, InjectedToolArg
+try:
+    from langchain_core.tools.base import (
+        TOOL_MESSAGE_BLOCK_TYPES,
+        ToolException,
+        _DirectlyInjectedToolArg,
+        get_all_basemodel_annotations,
+    )
+except ImportError:  # pragma: no cover - compatibility with newer langchain-core
+    from langchain_core.tools.base import (
+        TOOL_MESSAGE_BLOCK_TYPES,
+        ToolException,
+        get_all_basemodel_annotations,
+    )
+    _DirectlyInjectedToolArg = InjectedToolArg  # type: ignore[assignment]
+from src.agents.agents.utils.typing import ContextT, StateT
 from langchain_core.tools import tool as create_tool
 from langchain_core.tools.base import (
     TOOL_MESSAGE_BLOCK_TYPES,
     get_all_basemodel_annotations,
 )
+from langgraph.types import Command, Send, StreamWriter
 from src.agents.agents._internal._runnable import RunnableCallable
 from langgraph.errors import GraphBubbleUp
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
@@ -932,6 +950,116 @@ def tools_condition(
     return "__end__"
 
 
+@dataclass
+class ToolRuntime(_DirectlyInjectedToolArg, Generic[ContextT, StateT]):
+    """Runtime context automatically injected into tools.
+
+    When a tool function has a parameter named `tool_runtime` with type hint
+    `ToolRuntime`, the tool execution system will automatically inject an instance
+    containing:
+
+    - `state`: The current graph state
+    - `tool_call_id`: The ID of the current tool call
+    - `config`: `RunnableConfig` for the current execution
+    - `context`: Runtime context (from langgraph `Runtime`)
+    - `store`: `BaseStore` instance for persistent storage (from langgraph `Runtime`)
+    - `stream_writer`: `StreamWriter` for streaming output (from langgraph `Runtime`)
+
+    No `Annotated` wrapper is needed - just use `runtime: ToolRuntime`
+    as a parameter.
+
+    Example:
+        ```python
+        from langchain_core.tools import tool
+        from langchain.tools import ToolRuntime
+
+        @tool
+        def my_tool(x: int, runtime: ToolRuntime) -> str:
+            \"\"\"Tool that accesses runtime context.\"\"\"
+            # Access state
+            messages = tool_runtime.state["messages"]
+
+            # Access tool_call_id
+            print(f"Tool call ID: {tool_runtime.tool_call_id}")
+
+            # Access config
+            print(f"Run ID: {tool_runtime.config.get('run_id')}")
+
+            # Access runtime context
+            user_id = tool_runtime.context.get("user_id")
+
+            # Access store
+            tool_runtime.store.put(("metrics",), "count", 1)
+
+            # Stream output
+            tool_runtime.stream_writer.write("Processing...")
+
+            return f"Processed {x}"
+        ```
+
+    !!! note
+        This is a marker class used for type checking and detection.
+        The actual runtime object will be constructed during tool execution.
+    """
+
+    state: StateT
+    context: ContextT
+    config: RunnableConfig
+    stream_writer: StreamWriter
+    tool_call_id: str | None
+    store: BaseStore | None
+    
+
+class _ToolCallRequestOverrides(TypedDict, total=False):
+    """Possible overrides for ToolCallRequest.override() method."""
+
+    tool_call: ToolCall
+
+
+@dataclass()
+class ToolCallRequest:
+    """Tool execution request passed to tool call interceptors.
+
+    Attributes:
+        tool_call: Tool call dict with name, args, and id from model output.
+        tool: BaseTool instance to be invoked, or None if tool is not
+            registered with the `ToolNode`. When tool is `None`, interceptors can
+            handle the request without validation. If the interceptor calls `execute()`,
+            validation will occur and raise an error for unregistered tools.
+        state: Agent state (`dict`, `list`, or `BaseModel`).
+        runtime: LangGraph runtime context (optional, `None` if outside graph).
+    """
+
+    tool_call: ToolCall
+    tool: BaseTool | None
+    state: Any
+    runtime: ToolRuntime
+
+    def override(self, **overrides: Unpack[_ToolCallRequestOverrides]) -> ToolCallRequest:
+        """Replace the request with a new request with the given overrides.
+
+        Returns a new `ToolCallRequest` instance with the specified attributes replaced.
+        This follows an immutable pattern, leaving the original request unchanged.
+
+        Args:
+            **overrides: Keyword arguments for attributes to override. Supported keys:
+                - tool_call: Tool call dict with name, args, and id
+
+        Returns:
+            New ToolCallRequest instance with specified overrides applied.
+
+        Examples:
+            ```python
+            # Modify tool call arguments without mutating original
+            modified_call = {**request.tool_call, "args": {"value": 10}}
+            new_request = request.override(tool_call=modified_call)
+
+            # Override multiple attributes
+            new_request = request.override(tool_call=modified_call, state=new_state)
+            ```
+        """
+        return replace(self, **overrides)
+    
 class InjectedState(InjectedToolArg):
     """Annotation for injecting graph state into tool arguments.
 
