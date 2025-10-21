@@ -16,34 +16,25 @@ __all__ = (
     "ContextT",
 )
 
-StateT = TypeVar("StateT", bound=StateLike, default=StateLike)
+StateT = TypeVar("StateT", bound=StateLike)
 """Type variable used to represent the state in a graph."""
 
 StateT_co = TypeVar("StateT_co", bound=StateLike, covariant=True)
 
 StateT_contra = TypeVar("StateT_contra", bound=StateLike, contravariant=True)
 
-ContextT = TypeVar("ContextT", bound=Union[StateLike, None], default=None)
-"""Type variable used to represent graph run scoped context.
-
-Defaults to `None`.
-"""
+ContextT = TypeVar("ContextT", bound=Union[StateLike, None])
+"""Type variable used to represent graph run scoped context (e.g. `StateLike | None`)."""
 
 ContextT_contra = TypeVar(
-    "ContextT_contra", bound=Union[StateLike, None], contravariant=True, default=None
+    "ContextT_contra", bound=Union[StateLike, None], contravariant=True
 )
 
-InputT = TypeVar("InputT", bound=StateLike, default=StateT)
-"""Type variable used to represent the input to a state graph.
+InputT = TypeVar("InputT", bound=StateLike)
+"""Type variable used to represent the input to a state graph."""
 
-Defaults to `StateT`.
-"""
-
-OutputT = TypeVar("OutputT", bound=StateLike, default=StateT)
-"""Type variable used to represent the output of a state graph.
-
-Defaults to `StateT`.
-"""
+OutputT = TypeVar("OutputT", bound=StateLike)
+"""Type variable used to represent the output of a state graph."""
 
 NodeInputT = TypeVar("NodeInputT", bound=StateLike)
 """Type variable used to represent the input to a node."""

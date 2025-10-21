@@ -12,7 +12,11 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from langgraph.types import Checkpointer
 
-from src.agents.deep_agents.middleware.filesystem import FilesystemMiddleware
+from src.agents.deep_agents.middleware import (
+    AdaptiveSummarizationMiddleware,
+    FilesystemMiddleware,
+    resolve_summary_parameters,
+)
 from src.agents.deep_agents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from src.agents.deep_agents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
 
@@ -114,10 +118,35 @@ def create_deep_agent(
     """
     from src.agents.agents import create_agent  # Local import avoids circular dependency.
     from src.agents.agents.middleware import HumanInTheLoopMiddleware, TodoListMiddleware
-    from src.agents.agents.middleware.summarization import SummarizationMiddleware
 
     if model is None:
         model = get_default_model()
+
+    _, summary_budget, messages_to_keep = resolve_summary_parameters(model)
+    summary_middleware_main = AdaptiveSummarizationMiddleware(
+        model=model,
+        max_tokens_before_summary=summary_budget,
+        messages_to_keep=messages_to_keep,
+    )
+    summary_middleware_placeholder = AdaptiveSummarizationMiddleware(
+        model=model,
+        max_tokens_before_summary=summary_budget,
+        messages_to_keep=messages_to_keep,
+    )
+
+    subagent_base_middleware = [
+        TodoListMiddleware(),
+        FilesystemMiddleware(
+            long_term_memory=use_longterm_memory,
+        ),
+        summary_middleware_placeholder,
+        *(
+            [AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")]
+            if AnthropicPromptCachingMiddleware is not None
+            else []
+        ),
+        PatchToolCallsMiddleware(),
+    ]
 
     deepagent_middleware = [
         TodoListMiddleware(),
@@ -128,31 +157,12 @@ def create_deep_agent(
             default_model=model,
             default_tools=tools,
             subagents=subagents if subagents is not None else [],
-            default_middleware=[
-                TodoListMiddleware(),
-                FilesystemMiddleware(
-                    long_term_memory=use_longterm_memory,
-                ),
-                SummarizationMiddleware(
-                    model=model,
-                    max_tokens_before_summary=170000,
-                    messages_to_keep=6,
-                ),
-                *(
-                    [AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")]
-                    if AnthropicPromptCachingMiddleware is not None
-                    else []
-                ),
-                PatchToolCallsMiddleware(),
-            ],
+            default_middleware=subagent_base_middleware,
             default_interrupt_on=interrupt_on,
             general_purpose_agent=True,
+            summary_budget=summary_budget,
         ),
-        SummarizationMiddleware(
-            model=model,
-            max_tokens_before_summary=170000,
-            messages_to_keep=6,
-        ),
+        summary_middleware_main,
         *(
             [AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")]
             if AnthropicPromptCachingMiddleware is not None

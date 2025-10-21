@@ -64,9 +64,10 @@ from langchain_core.messages import (
     ToolMessage,
     convert_to_messages,
 )
+from langchain_core.runnables import RunnableConfig
 from langchain_core.runnables.config import (
     get_config_list,
-    get_executor_for_config,
+   get_executor_for_config,
 )
 from langchain_core.tools import BaseTool, InjectedToolArg
 try:
@@ -90,17 +91,22 @@ from langchain_core.tools.base import (
     get_all_basemodel_annotations,
 )
 from langgraph.types import Command, Send, StreamWriter
+from langgraph.store.base import BaseStore
 from src.agents.agents._internal._runnable import RunnableCallable
 from langgraph.errors import GraphBubbleUp
 from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.types import Command, Send
-from pydantic import BaseModel, ValidationError
+from pydantic import (
+    BaseModel,
+    ValidationError,
+    SkipValidation,
+    GetCoreSchemaHandler,
+    GetJsonSchemaHandler,
+)
+from pydantic_core import core_schema
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
-
-    from langchain_core.runnables import RunnableConfig
-    from langgraph.store.base import BaseStore
 
 INVALID_TOOL_NAME_ERROR_TEMPLATE = (
     "Error: {requested_tool} is not a valid tool, try one of [{available_tools}]."
@@ -1002,13 +1008,36 @@ class ToolRuntime(_DirectlyInjectedToolArg, Generic[ContextT, StateT]):
         The actual runtime object will be constructed during tool execution.
     """
 
-    state: StateT
-    context: ContextT
+    state: SkipValidation[StateT]
+    context: SkipValidation[ContextT]
     config: RunnableConfig
-    stream_writer: StreamWriter
+    stream_writer: SkipValidation[StreamWriter]
     tool_call_id: str | None
-    store: BaseStore | None
-    
+    store: SkipValidation[BaseStore | None]
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls,
+        _source: type["ToolRuntime"],
+        _handler: GetCoreSchemaHandler,
+    ) -> core_schema.CoreSchema:
+        """Treat ToolRuntime as an opaque injected type for validation purposes."""
+        return core_schema.no_info_plain_validator_function(lambda v: v)
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls,
+        _core_schema: core_schema.CoreSchema,
+        _handler: GetJsonSchemaHandler,
+    ) -> dict[str, object]:
+        """Exclude ToolRuntime details from generated tool schemas."""
+        return {
+            "type": "object",
+            "title": cls.__name__,
+            "properties": {},
+            "description": "Injected at runtime; callers should not supply this argument.",
+        }
+
 
 class _ToolCallRequestOverrides(TypedDict, total=False):
     """Possible overrides for ToolCallRequest.override() method."""

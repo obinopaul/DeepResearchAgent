@@ -446,40 +446,46 @@ function deriveSteps(
 ): DerivedStep[] {
   const planSteps = planPayload?.steps ?? [];
   const todoSteps = todos ?? [];
-  const maxLength = Math.max(planSteps.length, todoSteps.length);
 
-  const derived: DerivedStep[] = [];
-  for (let i = 0; i < maxLength; i += 1) {
-    const planStep = planSteps[i];
-    const todoStep = todoSteps[i];
+  let derived: DerivedStep[] = [];
 
-    const title =
-      pickFirstFilledText(
-        planStep?.title,
-        planStep?.content,
-        todoStep?.title,
-        todoStep?.content,
-      ) ?? `Step ${i + 1}`;
-    const description =
-      pickFirstFilledText(
-        planStep?.description,
-        todoStep?.description,
-        todoStep?.content,
-      ) ?? "";
-    const statusCandidate =
-      (typeof todoStep?.status === "string" ? todoStep.status : null) ??
-      planStep?.status;
-
-    derived.push({
-      index: i,
-      title,
-      description,
-      status: normalizeStatus(statusCandidate),
-      rawContent: todoStep?.content ?? planStep?.content,
+  if (todoSteps.length > 0) {
+    derived = todoSteps.map((todoStep, index) => {
+      const planStep = planSteps[index];
+      const title =
+        pickFirstFilledText(
+          todoStep?.title,
+          todoStep?.content,
+          planStep?.title,
+          planStep?.content,
+        ) ?? `Step ${index + 1}`;
+      const description =
+        pickFirstFilledText(todoStep?.description, planStep?.description) ?? "";
+      const statusCandidate =
+        (typeof todoStep?.status === "string" ? todoStep.status : undefined) ??
+        planStep?.status;
+      return {
+        index,
+        title,
+        description,
+        status: normalizeStatus(statusCandidate),
+        rawContent: todoStep?.content ?? planStep?.content,
+      };
     });
+  } else if (planSteps.length > 0) {
+    derived = planSteps.map((planStep, index) => ({
+      index,
+      title:
+        pickFirstFilledText(planStep?.title, planStep?.content) ??
+        `Step ${index + 1}`,
+      description:
+        pickFirstFilledText(planStep?.description, planStep?.content) ?? "",
+      status: normalizeStatus(planStep?.status),
+      rawContent: planStep?.content,
+    }));
   }
 
-  if (ongoing) {
+  if (ongoing && derived.length > 0) {
     const hasActive = derived.some((step) => step.status === "in_progress");
     if (!hasActive) {
       const firstPending = derived.find((step) => step.status === "pending");
@@ -544,17 +550,13 @@ function extractTodosFromMessages(
     if (message.toolCalls?.length) {
       for (const toolCall of message.toolCalls) {
         if (!toolCall) continue;
-        if (typeof toolCall.result === "string") {
-          const fromResult = parseTodoPayload(toolCall.result);
-          if (fromResult?.length) {
-            return fromResult;
-          }
+        const fromResult = parseTodoPayload(toolCall.result);
+        if (fromResult?.length) {
+          return fromResult;
         }
-        if (typeof toolCall.args === "string") {
-          const fromArgs = parseTodoPayload(toolCall.args);
-          if (fromArgs?.length) {
-            return fromArgs;
-          }
+        const fromArgs = parseTodoPayload(toolCall.args);
+        if (fromArgs?.length) {
+          return fromArgs;
         }
       }
     }
@@ -562,10 +564,33 @@ function extractTodosFromMessages(
   return null;
 }
 
-function parseTodoPayload(payload: string | null | undefined) {
-  if (!payload) return null;
-  const parsed = parseJSON<unknown>(payload, null);
-  return normalizeTodoValue(parsed);
+function parseTodoPayload(payload: unknown) {
+  if (payload == null) return null;
+  if (typeof payload === "string") {
+    const trimmed = payload.trim();
+    if (!trimmed) return null;
+    const parsed = parseJSON<unknown>(trimmed, undefined);
+    const normalized = normalizeTodoValue(parsed);
+    if (normalized?.length) {
+      return normalized;
+    }
+    const candidates = [trimmed.indexOf("{"), trimmed.indexOf("[")].filter(
+      (index) => index >= 0,
+    );
+    if (candidates.length) {
+      const jsonStart = Math.min(...candidates);
+      const startChar = trimmed[jsonStart]!;
+      const endChar = startChar === "{" ? "}" : "]";
+      const endIndex = trimmed.lastIndexOf(endChar);
+      if (endIndex > jsonStart) {
+        const candidate = trimmed.slice(jsonStart, endIndex + 1);
+        const parsedCandidate = parseJSON<unknown>(candidate, undefined);
+        return normalizeTodoValue(parsedCandidate);
+      }
+    }
+    return null;
+  }
+  return normalizeTodoValue(payload);
 }
 
 function normalizeTodoValue(value: unknown): TodoItemLike[] | null {
@@ -576,12 +601,21 @@ function normalizeTodoValue(value: unknown): TodoItemLike[] | null {
     return todos.length ? todos : null;
   }
   if (value && typeof value === "object") {
-    const record = value as { todos?: unknown };
+    const record = value as { todos?: unknown; state?: unknown };
     if (Array.isArray(record.todos)) {
       const todos = record.todos
         .map((item) => normalizeTodoItem(item))
         .filter((item): item is TodoItemLike => hasMeaningfulTodo(item));
       return todos.length ? todos : null;
+    }
+    if (record.state && typeof record.state === "object") {
+      const stateRecord = record.state as { todos?: unknown };
+      if (Array.isArray(stateRecord.todos)) {
+        const todos = stateRecord.todos
+          .map((item) => normalizeTodoItem(item))
+          .filter((item): item is TodoItemLike => hasMeaningfulTodo(item));
+        return todos.length ? todos : null;
+      }
     }
   }
   return null;

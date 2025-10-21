@@ -59,7 +59,7 @@ JumpTo = Literal["tools", "model", "end"]
 """Destination to jump to when a middleware node returns."""
 
 ResponseT = TypeVar("ResponseT")
-StructuredResponseT = TypeVar("StructuredResponseT", default=None)
+StructuredResponseT = TypeVar("StructuredResponseT")
 
 
 @dataclass
@@ -160,7 +160,7 @@ class PublicAgentState(TypedDict, Generic[ResponseT]):
     structured_response: NotRequired[ResponseT]
 
 
-StateT = TypeVar("StateT", bound=AgentState, default=AgentState)
+StateT = TypeVar("StateT", bound=AgentState)
 StateT_contra = TypeVar("StateT_contra", bound=AgentState, contravariant=True)
 
 

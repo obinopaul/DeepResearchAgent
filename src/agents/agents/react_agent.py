@@ -77,7 +77,7 @@ from src.agents.agents.middleware.types import (
     AgentStateWithStructuredResponsePydantic,
 )
 
-StructuredResponseT = TypeVar("StructuredResponseT", default=None)
+StructuredResponseT = TypeVar("StructuredResponseT")
 
 
 PROMPT_RUNNABLE_NAME = "Prompt"

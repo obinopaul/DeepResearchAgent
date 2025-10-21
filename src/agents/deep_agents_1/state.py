@@ -1,5 +1,6 @@
 from src.agents.agents.middleware.types import AgentState
-from typing import NotRequired, Annotated
+from typing import Annotated
+from typing_extensions import NotRequired
 from typing import Literal
 from typing_extensions import TypedDict
 

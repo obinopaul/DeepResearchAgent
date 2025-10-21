@@ -21,7 +21,7 @@ from src.agents.agents.middleware.types import (
 from src.agents.agents.tools.tool_node import ToolRuntime
 from src.agents.agents.tools.tool_node import ToolCallRequest
 from langchain_core.messages import ToolMessage
-from langchain_core.tools import BaseTool, tool
+from langchain_core.tools import BaseTool, tool, InjectedToolArg
 from langgraph.config import get_config
 from langgraph.runtime import Runtime
 from langgraph.store.base import BaseStore, Item
@@ -571,7 +571,7 @@ def _ls_tool_generator(custom_description: str | None = None, *, long_term_memor
     if long_term_memory:
 
         @tool(description=tool_description)
-        def ls(runtime: ToolRuntime[None, FilesystemState], path: str | None = None) -> list[str]:
+        def ls(runtime: Annotated[ToolRuntime[None, FilesystemState], InjectedToolArg()], path: str | None = None) -> list[str]:
             files = _get_filenames_from_state(runtime.state)
             # Add filenames from longterm memory
             store = _get_store(runtime)
@@ -583,7 +583,7 @@ def _ls_tool_generator(custom_description: str | None = None, *, long_term_memor
     else:
 
         @tool(description=tool_description)
-        def ls(runtime: ToolRuntime[None, FilesystemState], path: str | None = None) -> list[str]:
+        def ls(runtime: Annotated[ToolRuntime[None, FilesystemState], InjectedToolArg()], path: str | None = None) -> list[str]:
             files = _get_filenames_from_state(runtime.state)
             return _filter_files_by_path(files, path)
 
@@ -634,7 +634,7 @@ def _read_file_tool_generator(custom_description: str | None = None, *, long_ter
         @tool(description=tool_description)
         def read_file(
             file_path: str,
-            runtime: ToolRuntime[None, FilesystemState],
+            runtime: Annotated[ToolRuntime[None, FilesystemState], InjectedToolArg()],
             offset: int = DEFAULT_READ_OFFSET,
             limit: int = DEFAULT_READ_LIMIT,
         ) -> str:
@@ -659,7 +659,7 @@ def _read_file_tool_generator(custom_description: str | None = None, *, long_ter
         @tool(description=tool_description)
         def read_file(
             file_path: str,
-            runtime: ToolRuntime[None, FilesystemState],
+            runtime: Annotated[ToolRuntime[None, FilesystemState], InjectedToolArg()],
             offset: int = DEFAULT_READ_OFFSET,
             limit: int = DEFAULT_READ_LIMIT,
         ) -> str:
@@ -719,7 +719,7 @@ def _write_file_tool_generator(custom_description: str | None = None, *, long_te
         def write_file(
             file_path: str,
             content: str,
-            runtime: ToolRuntime[None, FilesystemState],
+            runtime: Annotated[ToolRuntime[None, FilesystemState], InjectedToolArg()],
         ) -> Command | str:
             file_path = _validate_path(file_path)
             if not runtime.tool_call_id:
@@ -742,7 +742,7 @@ def _write_file_tool_generator(custom_description: str | None = None, *, long_te
         def write_file(
             file_path: str,
             content: str,
-            runtime: ToolRuntime[None, FilesystemState],
+            runtime: Annotated[ToolRuntime[None, FilesystemState], InjectedToolArg()],
         ) -> Command | str:
             file_path = _validate_path(file_path)
             if not runtime.tool_call_id:
@@ -806,7 +806,7 @@ def _edit_file_tool_generator(custom_description: str | None = None, *, long_ter
             file_path: str,
             old_string: str,
             new_string: str,
-            runtime: ToolRuntime[None, FilesystemState],
+            runtime: Annotated[ToolRuntime[None, FilesystemState], InjectedToolArg()],
             *,
             replace_all: bool = False,
         ) -> Command | str:
@@ -854,7 +854,7 @@ def _edit_file_tool_generator(custom_description: str | None = None, *, long_ter
             file_path: str,
             old_string: str,
             new_string: str,
-            runtime: ToolRuntime[None, FilesystemState],
+            runtime: Annotated[ToolRuntime[None, FilesystemState], InjectedToolArg()],
             *,
             replace_all: bool = False,
         ) -> Command | str:

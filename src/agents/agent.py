@@ -106,7 +106,7 @@ def deep_agent(
     # Always use the dedicated deepagent LLM type for orchestration, independent of the caller's agent_type
     return create_deep_agent(
         # name=agent_name,
-        model=get_llm_by_type(AGENT_LLM_MAP["deepagent_deepseek"]),
+        model=get_llm_by_type(AGENT_LLM_MAP["deepagent"]),
         tools=tools,
         subagents=all_subagents,
         # instructions =lambda state: apply_prompt_template(prompt_template, state),

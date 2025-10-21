@@ -592,7 +592,21 @@ def _extract_final_report_from_result(result: dict | Any) -> tuple[str, bool]:
 
     try:
         if isinstance(result, dict):
-            files_obj = result.get("files")
+            msg_obj = result.get("messages")
+            if isinstance(msg_obj, list):
+                for msg in reversed(msg_obj):
+                    try:
+                        content_attr = getattr(msg, "content", None)
+                        if isinstance(content_attr, str):
+                            stripped = content_attr.strip()
+                            if stripped:
+                                response_content = stripped
+                                has_payload = True
+                                break
+                    except Exception:
+                        continue
+                    
+            files_obj = result.get("files", None)
 
             if isinstance(files_obj, dict):
                 for file_name, file_entry in files_obj.items():
@@ -676,16 +690,16 @@ async def _execute_deepagent_step(
         user_brief.strip() if user_brief else "(No direct user message captured in state.)",
         "# Planner Output Snapshot",
         plan_summary,
-        "# Execution Instructions",
-        dedent(
-            f"""
-            - Integrate the planner steps into your internal TODO list using the `write_todos` tool.
-            - Expand or refine the steps as needed to ensure exhaustive coverage of the research brief.
-            - Conduct thorough, tool-driven research before drafting any findings.
-            - Store the original question in `question.txt`, and write the final deliverable to `final_report.md`.
-            - Ensure the final report respects the locale `{locale_value}` and follows all citation requirements.
-            """
-        ).strip(),
+        # "# Execution Instructions"
+        # dedent(
+        #     f"""
+        #     - Integrate the planner steps into your internal TODO list using the `write_todos` tool.
+        #     - Expand or refine the steps as needed to ensure exhaustive coverage of the research brief.
+        #     - Conduct thorough, tool-driven research before drafting any findings.
+        #     - Store the original question in `question.txt`, and write the final deliverable to `final_report.md`.
+        #     - Ensure the final report respects the locale `{locale_value}` and follows all citation requirements.
+        #     """
+        # ).strip(),
     ]
 
     primary_message_content = "\n\n".join(
@@ -703,12 +717,12 @@ async def _execute_deepagent_step(
         )
         messages.append(HumanMessage(content="\n".join(resources_lines)))
 
-    messages.append(
-        HumanMessage(
-            content="IMPORTANT: Track all sources and include a References section at the end using link reference format. Include an empty line between each citation.",
-            name="system",
-        )
-    )
+    # messages.append(
+    #     HumanMessage(
+    #         content="IMPORTANT: Track all sources and include a References section at the end using link reference format. Include an empty line between each citation.",
+    #         name="system",
+    #     )
+    # )
 
     logger.info("Executing consolidated deep_agent run for %s.", agent_name)
     logger.debug("Deep agent input messages: %s", primary_message_content)

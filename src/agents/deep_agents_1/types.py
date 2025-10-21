@@ -1,4 +1,5 @@
-from typing import NotRequired, Union, Any
+from typing import Union, Any
+from typing_extensions import NotRequired
 from typing_extensions import TypedDict
 from langchain_core.language_models import LanguageModelLike
 from src.agents.agents.middleware import AgentMiddleware
