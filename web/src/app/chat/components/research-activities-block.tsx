@@ -983,7 +983,10 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
     }
 
     try {
-      const parsed = parseJSON(toolCall.result, undefined);
+      const parsed = parseJSON<SearchResult[] | undefined>(
+        toolCall.result,
+        undefined,
+      );
       if (Array.isArray(parsed)) {
         parsed.forEach((result) => {
           if (result?.type === "page" && typeof result.url === "string") {
