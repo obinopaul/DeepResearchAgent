@@ -29,6 +29,7 @@ def test_default_configuration():
     assert config.max_step_num == 3
     assert config.max_search_results == 3
     assert config.mcp_settings is None
+    assert config.research_timer_seconds is None
 
 
 def test_from_runnable_config_with_config_dict(monkeypatch):
@@ -38,6 +39,7 @@ def test_from_runnable_config_with_config_dict(monkeypatch):
             "max_step_num": 7,
             "max_search_results": 10,
             "mcp_settings": {"foo": "bar"},
+            "research_timer_seconds": 420,
         }
     }
     config = Configuration.from_runnable_config(config_dict)
@@ -45,6 +47,7 @@ def test_from_runnable_config_with_config_dict(monkeypatch):
     assert config.max_step_num == 7
     assert config.max_search_results == 10
     assert config.mcp_settings == {"foo": "bar"}
+    assert config.research_timer_seconds == 420
 
 
 def test_from_runnable_config_with_env_override(monkeypatch):
@@ -55,6 +58,7 @@ def test_from_runnable_config_with_env_override(monkeypatch):
             "max_plan_iterations": 2,
             "max_step_num": 3,
             "max_search_results": 4,
+            "research_timer_seconds": 0,
         }
     }
     config = Configuration.from_runnable_config(config_dict)
@@ -62,6 +66,7 @@ def test_from_runnable_config_with_env_override(monkeypatch):
     assert config.max_plan_iterations == "9"
     assert config.max_step_num == "11"
     assert config.max_search_results == 4  # not overridden
+    assert config.research_timer_seconds is None
     # Clean up
     monkeypatch.delenv("MAX_PLAN_ITERATIONS")
     monkeypatch.delenv("MAX_STEP_NUM")
@@ -80,6 +85,7 @@ def test_from_runnable_config_with_none_and_falsy(monkeypatch):
     assert config.max_plan_iterations == 1
     assert config.max_step_num == 3
     assert config.max_search_results == 3
+    assert config.research_timer_seconds is None
 
 
 def test_from_runnable_config_with_no_config():
@@ -89,6 +95,7 @@ def test_from_runnable_config_with_no_config():
     assert config.max_search_results == 3
     assert config.resources == []
     assert config.mcp_settings is None
+    assert config.research_timer_seconds is None
 
 
 def test_get_recursion_limit_default():

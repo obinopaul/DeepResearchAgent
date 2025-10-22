@@ -34,6 +34,7 @@ export async function* chatStream(
         }
       >;
     };
+    research_timer_seconds?: number;
   },
   options: { abortSignal?: AbortSignal } = {},
 ) {

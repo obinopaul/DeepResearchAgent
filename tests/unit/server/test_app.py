@@ -530,6 +530,7 @@ class TestAstreamWorkflowGenerator:
             interrupt_feedback="",
             mcp_settings={},
             enable_background_investigation=False,
+            research_timer_seconds=None,
             report_style=ReportStyle.ACADEMIC,
             enable_deep_thinking=False,
         )
@@ -569,6 +570,7 @@ class TestAstreamWorkflowGenerator:
             interrupt_feedback="edit_plan",
             mcp_settings={},
             enable_background_investigation=False,
+            research_timer_seconds=None,
             report_style=ReportStyle.ACADEMIC,
             enable_deep_thinking=False,
         )
@@ -603,6 +605,7 @@ class TestAstreamWorkflowGenerator:
             interrupt_feedback="",
             mcp_settings={},
             enable_background_investigation=False,
+            research_timer_seconds=None,
             report_style=ReportStyle.ACADEMIC,
             enable_deep_thinking=False,
         )
@@ -635,6 +638,7 @@ class TestAstreamWorkflowGenerator:
             interrupt_feedback="",
             mcp_settings={},
             enable_background_investigation=False,
+            research_timer_seconds=None,
             report_style=ReportStyle.ACADEMIC,
             enable_deep_thinking=False,
         )
@@ -672,6 +676,7 @@ class TestAstreamWorkflowGenerator:
             interrupt_feedback="",
             mcp_settings={},
             enable_background_investigation=False,
+            research_timer_seconds=None,
             report_style=ReportStyle.ACADEMIC,
             enable_deep_thinking=False,
         )
@@ -713,6 +718,7 @@ class TestAstreamWorkflowGenerator:
             interrupt_feedback="",
             mcp_settings={},
             enable_background_investigation=False,
+            research_timer_seconds=None,
             report_style=ReportStyle.ACADEMIC,
             enable_deep_thinking=False,
         )
@@ -754,6 +760,7 @@ class TestAstreamWorkflowGenerator:
             interrupt_feedback="",
             mcp_settings={},
             enable_background_investigation=False,
+            research_timer_seconds=None,
             report_style=ReportStyle.ACADEMIC,
             enable_deep_thinking=False,
         )
@@ -792,6 +799,7 @@ class TestAstreamWorkflowGenerator:
             interrupt_feedback="",
             mcp_settings={},
             enable_background_investigation=False,
+            research_timer_seconds=None,
             report_style=ReportStyle.ACADEMIC,
             enable_deep_thinking=False,
         )
@@ -821,7 +829,30 @@ class TestAstreamWorkflowGenerator:
             assert config["max_step_num"] == 20
             assert config["max_search_results"] == 10
             assert config["report_style"] == ReportStyle.NEWS.value
+             assert config["research_timer_seconds"] == 600
             yield ("agent1", "messages", [mock_ai_message])
+
+        mock_graph.astream = verify_config
+
+        generator = _astream_workflow_generator(
+            messages=[],
+            thread_id="test_thread",
+            resources=[],
+            max_plan_iterations=5,
+            max_step_num=20,
+            max_search_results=10,
+            auto_accepted_plan=True,
+            interrupt_feedback="",
+            mcp_settings={},
+            enable_background_investigation=False,
+            research_timer_seconds=600,
+            report_style=ReportStyle.NEWS,
+            enable_deep_thinking=False,
+        )
+
+        events = []
+        async for event in generator:
+            events.append(event)
 
 
 class TestGenerateProseEndpoint:

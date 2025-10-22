@@ -6,7 +6,7 @@ from src.agents.agents import create_agent as create_react_agent
 from src.config.agents import AGENT_LLM_MAP
 from src.llms.llm import get_llm_by_type
 from src.prompts import apply_prompt_template
-from src.agents.deep_agents import create_deep_agent
+from src.agents.deep_agents import ResearchTimerMiddleware, create_deep_agent
 
 # Create agents using configured LLM types
 def create_agent(
@@ -41,6 +41,7 @@ def deep_agent(
     sub_followup_prompt: str,
     sub_evidence_auditor_prompt: str,
     pre_model_hook: callable = None,
+    research_timer_seconds: float | int | None = None,
 ):
     
     research_sub_agent = {
@@ -102,6 +103,15 @@ def deep_agent(
         evidence_auditor_sub_agent,
     ]
 
+    extra_middleware = []
+    if research_timer_seconds is not None:
+        try:
+            seconds = float(research_timer_seconds)
+        except (TypeError, ValueError):
+            seconds = None
+        if seconds and seconds > 0:
+            extra_middleware.append(ResearchTimerMiddleware(total_seconds=seconds))
+
     """Factory function to create agents with consistent configuration."""
     # Always use the dedicated deepagent LLM type for orchestration, independent of the caller's agent_type
     return create_deep_agent(
@@ -112,5 +122,6 @@ def deep_agent(
         # instructions =lambda state: apply_prompt_template(prompt_template, state),
         system_prompt=prompt_template,
         # pre_model_hook=pre_model_hook,
+        middleware=extra_middleware or None,
     ).with_config({"recursion_limit": 1000})
     

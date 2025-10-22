@@ -16,6 +16,7 @@ const DEFAULT_SETTINGS: SettingsState = {
     maxStepNum: 3,
     maxSearchResults: 3,
     reportStyle: "academic",
+    researchTimerMinutes: 3,
   },
   mcp: {
     servers: [],
@@ -31,6 +32,7 @@ export type SettingsState = {
     maxStepNum: number;
     maxSearchResults: number;
     reportStyle: "academic" | "popular_science" | "news" | "social_media" | "strategic_investment";
+    researchTimerMinutes: number | null;
   };
   mcp: {
     servers: MCPServerMetadata[];
@@ -156,6 +158,16 @@ export function setEnableBackgroundInvestigation(value: boolean) {
     general: {
       ...state.general,
       enableBackgroundInvestigation: value,
+    },
+  }));
+  saveSettings();
+}
+
+export function setResearchTimerMinutes(value: number | null) {
+  useSettingsStore.setState((state) => ({
+    general: {
+      ...state.general,
+      researchTimerMinutes: value,
     },
   }));
   saveSettings();

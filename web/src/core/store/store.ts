@@ -97,6 +97,10 @@ export async function sendMessage(
   }
 
   const settings = getChatStreamSettings();
+  const researchTimerSeconds =
+    settings.researchTimerMinutes != null
+      ? Math.max(Math.round(settings.researchTimerMinutes * 60), 0)
+      : null;
   const stream = chatStream(
     content ?? "[REPLAY]",
     {
@@ -112,6 +116,7 @@ export async function sendMessage(
       max_search_results: settings.maxSearchResults,
       report_style: settings.reportStyle,
       mcp_settings: settings.mcpSettings,
+      research_timer_seconds: researchTimerSeconds ?? undefined,
     },
     options,
   );

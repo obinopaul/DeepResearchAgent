@@ -3,7 +3,7 @@
 
 import { MagicWandIcon } from "@radix-ui/react-icons";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowUp, Lightbulb, X } from "lucide-react";
+import { ArrowUp, Lightbulb, Timer, X } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useCallback, useRef, useState } from "react";
 
@@ -15,12 +15,19 @@ import { ReportStyleDialog } from "~/components/deer-flow/report-style-dialog";
 import { Tooltip } from "~/components/deer-flow/tooltip";
 import { BorderBeam } from "~/components/magicui/border-beam";
 import { Button } from "~/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "~/components/ui/dropdown-menu";
 import { enhancePrompt } from "~/core/api";
 import { useConfig } from "~/core/api/hooks";
 import type { Option, Resource } from "~/core/messages";
 import {
   setEnableDeepThinking,
   setEnableBackgroundInvestigation,
+  setResearchTimerMinutes,
   useSettingsStore,
 } from "~/core/store";
 import { cn } from "~/lib/utils";
@@ -55,6 +62,9 @@ export function InputBox({
   const backgroundInvestigation = useSettingsStore(
     (state) => state.general.enableBackgroundInvestigation,
   );
+  const researchTimerMinutes = useSettingsStore(
+    (state) => state.general.researchTimerMinutes,
+  );
   const { config, loading } = useConfig();
   const reportStyle = useSettingsStore((state) => state.general.reportStyle);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -65,6 +75,16 @@ export function InputBox({
   const [isEnhancing, setIsEnhancing] = useState(false);
   const [isEnhanceAnimating, setIsEnhanceAnimating] = useState(false);
   const [currentPrompt, setCurrentPrompt] = useState("");
+
+  const timerOptions = [3, 5, 8, 10, 15];
+  const timerStatusLabel =
+    researchTimerMinutes != null
+      ? t("timerMinutes", { count: researchTimerMinutes })
+      : t("off");
+  const timerButtonLabel =
+    researchTimerMinutes != null
+      ? `${t("timer")} ${timerStatusLabel}`
+      : t("timer");
 
   const handleSendMessage = useCallback(
     (message: string, resources: Array<Resource>) => {
@@ -273,6 +293,54 @@ export function InputBox({
               <Detective /> {t("investigation")}
             </Button>
           </Tooltip>
+          <DropdownMenu>
+            <Tooltip
+              className="max-w-60"
+              title={
+                <div>
+                  <h3 className="mb-2 font-bold">
+                    {t("timerTooltip.title", { duration: timerStatusLabel })}
+                  </h3>
+                  <p>{t("timerTooltip.description")}</p>
+                </div>
+              }
+            >
+              <DropdownMenuTrigger asChild>
+                <Button
+                  className={cn(
+                    "rounded-2xl gap-2",
+                    researchTimerMinutes != null && "!border-brand !text-brand",
+                  )}
+                  variant="outline"
+                >
+                  <Timer /> {timerButtonLabel}
+                </Button>
+              </DropdownMenuTrigger>
+            </Tooltip>
+            <DropdownMenuContent align="start" className="w-40">
+              <DropdownMenuItem
+                onClick={() => setResearchTimerMinutes(null)}
+                className={cn(
+                  "cursor-pointer",
+                  researchTimerMinutes == null && "font-semibold text-brand",
+                )}
+              >
+                {t("off")}
+              </DropdownMenuItem>
+              {timerOptions.map((minutes) => (
+                <DropdownMenuItem
+                  key={minutes}
+                  onClick={() => setResearchTimerMinutes(minutes)}
+                  className={cn(
+                    "cursor-pointer",
+                    researchTimerMinutes === minutes && "font-semibold text-brand",
+                  )}
+                >
+                  {t("timerMinutes", { count: minutes })}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
           <ReportStyleDialog />
         </div>
         <div className="flex shrink-0 items-center gap-2">

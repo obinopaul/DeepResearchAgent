@@ -65,6 +65,9 @@ class ChatRequest(BaseModel):
     enable_deep_thinking: Optional[bool] = Field(
         False, description="Whether to enable deep thinking"
     )
+    research_timer_seconds: Optional[int] = Field(
+        None, description="Optional time budget in seconds for researcher wrap-up prompts"
+    )
 
 
 class TTSRequest(BaseModel):

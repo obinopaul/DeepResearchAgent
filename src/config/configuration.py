@@ -51,18 +51,43 @@ class Configuration:
     mcp_settings: dict = None  # MCP settings, including dynamic loaded tools
     report_style: str = ReportStyle.ACADEMIC.value  # Report style
     enable_deep_thinking: bool = False  # Whether to enable deep thinking
+    research_timer_seconds: Optional[int] = None  # Research timer budget
 
     @classmethod
     def from_runnable_config(
         cls, config: Optional[RunnableConfig] = None
     ) -> "Configuration":
         """Create a Configuration instance from a RunnableConfig."""
-        configurable = (
-            config["configurable"] if config and "configurable" in config else {}
-        )
-        values: dict[str, Any] = {
-            f.name: os.environ.get(f.name.upper(), configurable.get(f.name))
-            for f in fields(cls)
-            if f.init
-        }
-        return cls(**{k: v for k, v in values.items() if v})
+        configurable = {}
+        if config and isinstance(config, dict):
+            raw_configurable = config.get("configurable")
+            if isinstance(raw_configurable, dict):
+                configurable = raw_configurable
+
+        field_names = {f.name for f in fields(cls) if f.init}
+        top_level_values: dict[str, Any] = {}
+        if config and isinstance(config, dict):
+            top_level_values = {
+                key: value
+                for key, value in config.items()
+                if key in field_names
+            }
+
+        values: dict[str, Any] = {}
+        for field_def in fields(cls):
+            if not field_def.init:
+                continue
+            key = field_def.name
+            env_key = key.upper()
+            env_value = os.environ.get(env_key)
+            if env_value not in (None, ""):
+                values[key] = env_value
+                continue
+
+            candidate = configurable.get(key)
+            if candidate in (None, "", False, 0):
+                candidate = top_level_values.get(key)
+            if candidate not in (None, "", False, 0):
+                values[key] = candidate
+
+        return cls(**values)

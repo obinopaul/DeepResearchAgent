@@ -116,7 +116,13 @@
       },
       "enhancePrompt": "Enhance prompt with AI",
       "on": "On",
-      "off": "Off"
+      "off": "Off",
+      "timer": "Timer",
+      "timerTooltip": {
+        "title": "Research Timer: {duration}",
+        "description": "Select how long the deep agent may explore before it is asked to wrap up."
+      },
+      "timerMinutes": "{count} min"
     },
     "research": {
       "deepResearch": "Deep Research",

@@ -19,6 +19,8 @@ from deepagents.middleware.filesystem import (
 )
 from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
 from deepagents.middleware.subagents import DEFAULT_GENERAL_PURPOSE_DESCRIPTION, TASK_SYSTEM_PROMPT, TASK_TOOL_DESCRIPTION, SubAgentMiddleware
+from src.agents.agents.utils.runtime import Runtime
+from src.agents.deep_agents.middleware.timer import ResearchTimerMiddleware
 
 
 class TestAddMiddleware:
@@ -302,3 +304,38 @@ class TestPatchToolCallsMiddleware:
         assert updated_messages[6].tool_call_id == "456"
         assert updated_messages[6].name == "get_events_for_days"
         assert updated_messages[7] == input_messages[5]
+
+
+class TestResearchTimerMiddleware:
+    def test_timer_sends_warning_message(self, monkeypatch):
+        middleware = ResearchTimerMiddleware(total_seconds=120, warning_ratio=0.5)
+        state = {"messages": [HumanMessage(content="Start")]}
+        runtime = Runtime()
+
+        monkeypatch.setattr("src.agents.deep_agents.middleware.timer.time.monotonic", lambda: 0.0)
+        assert middleware.before_model(state, runtime) is None
+
+        monkeypatch.setattr("src.agents.deep_agents.middleware.timer.time.monotonic", lambda: 70.0)
+        update = middleware.before_model(state, runtime)
+        assert update is not None
+        assert isinstance(update["messages"][-1], HumanMessage)
+        assert "Time check" in update["messages"][-1].content
+
+    def test_timer_emits_final_message_once(self, monkeypatch):
+        middleware = ResearchTimerMiddleware(total_seconds=60, warning_ratio=0.9)
+        state = {"messages": [HumanMessage(content="Start")]}
+        runtime = Runtime()
+
+        times = iter([0.0, 65.0, 70.0])
+        monkeypatch.setattr("src.agents.deep_agents.middleware.timer.time.monotonic", lambda: next(times))
+
+        assert middleware.before_model(state, runtime) is None
+        update = middleware.before_model(state, runtime)
+        assert update is not None
+        final_message = update["messages"][-1]
+        assert isinstance(final_message, HumanMessage)
+        assert "final summary" in final_message.content.lower()
+
+        # Subsequent call should not duplicate the final message
+        second_update = middleware.before_model(state, runtime)
+        assert second_update is None

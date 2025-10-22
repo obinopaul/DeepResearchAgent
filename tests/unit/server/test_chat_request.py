@@ -62,6 +62,7 @@ def test_chat_request_defaults():
     assert req.mcp_settings is None
     assert req.enable_background_investigation is True
     assert req.report_style == ReportStyle.ACADEMIC
+    assert req.research_timer_seconds is None
 
 
 def test_chat_request_with_values():
@@ -82,6 +83,7 @@ def test_chat_request_with_values():
         mcp_settings={"foo": "bar"},
         enable_background_investigation=False,
         report_style="academic",
+        research_timer_seconds=180,
     )
     assert req.messages[0].role == "user"
     assert req.debug is True
@@ -94,6 +96,7 @@ def test_chat_request_with_values():
     assert req.mcp_settings == {"foo": "bar"}
     assert req.enable_background_investigation is False
     assert req.report_style == ReportStyle.ACADEMIC
+    assert req.research_timer_seconds == 180
 
 
 def test_tts_request_defaults():

@@ -121,6 +121,7 @@ async def chat_stream(request: ChatRequest):
         request.interrupt_feedback,
         request.mcp_settings if mcp_enabled else {},
         request.enable_background_investigation,
+        request.research_timer_seconds,
         request.report_style,
         request.enable_deep_thinking,
     )
@@ -405,6 +406,7 @@ async def _astream_workflow_generator(
     interrupt_feedback: str,
     mcp_settings: dict,
     enable_background_investigation: bool,
+    research_timer_seconds: int | None,
     report_style: ReportStyle,
     enable_deep_thinking: bool,
 ):
@@ -424,6 +426,7 @@ async def _astream_workflow_generator(
         "auto_accepted_plan": auto_accepted_plan,
         "enable_background_investigation": enable_background_investigation,
         "research_topic": messages[-1]["content"] if messages else "",
+        "research_timer_seconds": research_timer_seconds,
     }
 
     if not auto_accepted_plan and interrupt_feedback:
@@ -442,6 +445,7 @@ async def _astream_workflow_generator(
         "mcp_settings": mcp_settings,
         "report_style": report_style.value,
         "enable_deep_thinking": enable_deep_thinking,
+        "research_timer_seconds": research_timer_seconds,
         "recursion_limit": get_recursion_limit(),
     }
 

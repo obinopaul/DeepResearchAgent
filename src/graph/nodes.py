@@ -579,15 +579,87 @@ def _extract_final_report_from_result(result: dict | Any) -> tuple[str, bool]:
         except Exception:
             return name == "final_report.md"
 
+    def _looks_base64(text: str) -> bool:
+        if len(text) < 16:
+            return False
+        if len(text) % 4 != 0:
+            return False
+        base64_chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=\n\r"
+        return all(ch in base64_chars for ch in text.strip())
+
+    def _normalize_bytes(value: bytes | list[int] | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            if isinstance(value, bytes):
+                decoded = value.decode("utf-8", errors="ignore").strip()
+                return decoded or None
+            if isinstance(value, list) and all(isinstance(x, int) for x in value):
+                decoded = bytes(value).decode("utf-8", errors="ignore").strip()
+                return decoded or None
+        except Exception:
+            return None
+        return None
+
     def _extract_file_payload(file_entry):
         if isinstance(file_entry, str):
             stripped = file_entry.strip()
             return stripped or None
+        if isinstance(file_entry, bytes):
+            return _normalize_bytes(file_entry)
         if isinstance(file_entry, dict):
-            for field in ("content", "data", "text", "value"):
+            # Common direct string fields
+            for field in ("content", "text", "value"):
                 value = file_entry.get(field)
                 if isinstance(value, str) and value.strip():
                     return value
+                if isinstance(value, bytes):
+                    candidate = _normalize_bytes(value)
+                    if candidate:
+                        return candidate
+                if isinstance(value, list):
+                    candidate = _normalize_bytes(value)
+                    if candidate:
+                        return candidate
+
+            # Raw/buffer payloads
+            data_field = file_entry.get("data")
+            if isinstance(data_field, str):
+                stripped = data_field.strip()
+                if stripped:
+                    if _looks_base64(stripped):
+                        try:
+                            import base64
+
+                            decoded = base64.b64decode(stripped)
+                            candidate = _normalize_bytes(decoded)
+                            if candidate:
+                                return candidate
+                        except Exception:
+                            pass
+                    return stripped
+            if isinstance(data_field, bytes):
+                candidate = _normalize_bytes(data_field)
+                if candidate:
+                    return candidate
+            if isinstance(data_field, dict):
+                buffer_payload = data_field.get("data")
+                candidate = None
+                if isinstance(buffer_payload, (bytes, list)):
+                    candidate = _normalize_bytes(buffer_payload)
+                if not candidate:
+                    for key in ("content", "text", "value"):
+                        raw = data_field.get(key)
+                        if isinstance(raw, str) and raw.strip():
+                            candidate = raw
+                            break
+                        if isinstance(raw, bytes):
+                            decoded = _normalize_bytes(raw)
+                            if decoded:
+                                candidate = decoded
+                                break
+                if candidate:
+                    return candidate
         return None
 
     try:
@@ -1113,7 +1185,8 @@ async def _setup_and_execute_deep_agent_step(
             sub_insight_extractor_prompt = sub_insight_extractor_prompt,
             sub_followup_prompt = sub_followup_prompt,
             sub_evidence_auditor_prompt = sub_evidence_auditor_prompt,
-            pre_model_hook = pre_model_hook
+            pre_model_hook = pre_model_hook,
+            research_timer_seconds = configurable.research_timer_seconds,
         )
 
 
@@ -1139,7 +1212,8 @@ async def _setup_and_execute_deep_agent_step(
             sub_insight_extractor_prompt = sub_insight_extractor_prompt,
             sub_followup_prompt = sub_followup_prompt,
             sub_evidence_auditor_prompt = sub_evidence_auditor_prompt,
-            pre_model_hook = pre_model_hook
+            pre_model_hook = pre_model_hook,
+            research_timer_seconds = configurable.research_timer_seconds,
         )
 
         return await _execute_deepagent_step(state, agent, agent_type)
