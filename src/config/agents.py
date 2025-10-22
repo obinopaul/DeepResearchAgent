@@ -6,6 +6,7 @@ from typing import Literal, get_args
 
 LLMType = Literal[
     "basic",
+    "synthesizer",
     "reasoning",
     "vision",
     "code",
@@ -71,6 +72,7 @@ AGENT_LLM_MAP: dict[str, LLMType] = {
     "ppt_composer": "basic",
     "prose_writer": "basic",
     "prompt_enhancer": "basic",
+    "synthesizer": "synthesizer",
     # Dedicated model selection for deep agent orchestration
     "deepagent": DEEPAGENT_LLM_TYPE,
     "deepagent_openai": DEEPAGENT_LLM_TYPE,
