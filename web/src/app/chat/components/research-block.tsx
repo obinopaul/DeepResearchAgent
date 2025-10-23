@@ -16,6 +16,7 @@ import { cn } from "~/lib/utils";
 
 import { ResearchActivitiesBlock } from "./research-activities-block";
 import { ResearchReportBlock } from "./research-report-block";
+import { ResearchSourcesBlock } from "./research-sources-block";
 
 export function ResearchBlock({
   className,
@@ -184,6 +185,9 @@ export function ResearchBlock({
               <TabsTrigger className="px-8" value="activities">
                 {t("activities")}
               </TabsTrigger>
+              <TabsTrigger className="px-8" value="sources">
+                {t("sources")}
+              </TabsTrigger>
             </TabsList>
           </div>
           <TabsContent
@@ -220,6 +224,25 @@ export function ResearchBlock({
             >
               {researchId && (
                 <ResearchActivitiesBlock
+                  className="mt-4"
+                  researchId={researchId}
+                />
+              )}
+            </ScrollContainer>
+          </TabsContent>
+          <TabsContent
+            className="h-full min-h-0 flex-grow px-8"
+            value="sources"
+            forceMount
+            hidden={activeTab !== "sources"}
+          >
+            <ScrollContainer
+              className="h-full"
+              scrollShadowColor="var(--card)"
+              autoScrollToBottom={!hasReport || reportStreaming}
+            >
+              {researchId && (
+                <ResearchSourcesBlock
                   className="mt-4"
                   researchId={researchId}
                 />

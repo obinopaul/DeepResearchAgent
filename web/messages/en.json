@@ -134,6 +134,8 @@
       "deepThinking": "Deep Thinking",
       "report": "Report",
       "activities": "Activities",
+      "sources": "Sources",
+      "noSourcesFound": "No sources found yet.",
       "generatePodcast": "Generate podcast",
       "edit": "Edit",
       "copy": "Copy",

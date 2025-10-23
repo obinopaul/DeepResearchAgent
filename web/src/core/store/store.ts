@@ -15,6 +15,11 @@ import { getChatStreamSettings } from "./settings-store";
 
 const THREAD_ID = nanoid();
 
+export type Source = {
+  title: string;
+  url: string;
+};
+
 export const useStore = create<{
   responding: boolean;
   threadId: string | undefined;
@@ -24,6 +29,7 @@ export const useStore = create<{
   researchPlanIds: Map<string, string>;
   researchReportIds: Map<string, string>;
   researchActivityIds: Map<string, string[]>;
+  researchSources: Map<string, Source[]>;
   ongoingResearchId: string | null;
   openResearchId: string | null;
 
@@ -33,6 +39,7 @@ export const useStore = create<{
   openResearch: (researchId: string | null) => void;
   closeResearch: () => void;
   setOngoingResearch: (researchId: string | null) => void;
+  appendResearchSources: (researchId: string, sources: Source[]) => void;
 }>((set) => ({
   responding: false,
   threadId: THREAD_ID,
@@ -42,6 +49,7 @@ export const useStore = create<{
   researchPlanIds: new Map<string, string>(),
   researchReportIds: new Map<string, string>(),
   researchActivityIds: new Map<string, string[]>(),
+  researchSources: new Map<string, Source[]>(),
   ongoingResearchId: null,
   openResearchId: null,
 
@@ -71,6 +79,19 @@ export const useStore = create<{
   },
   setOngoingResearch(researchId: string | null) {
     set({ ongoingResearchId: researchId });
+  },
+  appendResearchSources(researchId: string, sources: Source[]) {
+    set((state) => {
+      const newResearchSources = new Map(state.researchSources);
+      const existingSources = newResearchSources.get(researchId) ?? [];
+      const existingUrls = new Set(existingSources.map((s) => s.url));
+      const newSources = sources.filter((s) => !existingUrls.has(s.url));
+      if (newSources.length === 0) {
+        return {};
+      }
+      newResearchSources.set(researchId, [...existingSources, ...newSources]);
+      return { researchSources: newResearchSources };
+    });
   },
 }));
 
@@ -241,11 +262,7 @@ function findMessageByToolCallId(toolCallId: string) {
 }
 
 function appendMessage(message: Message) {
-  if (
-    message.agent === "coder" ||
-    message.agent === "reporter" ||
-    message.agent === "researcher"
-  ) {
+  if (message.agent === "coder" || message.agent === "researcher") {
     if (!getOngoingResearchId()) {
       const id = message.id;
       appendResearch(id);
@@ -327,6 +344,13 @@ export function openResearch(researchId: string | null) {
 
 export function closeResearch() {
   useStore.getState().closeResearch();
+}
+
+export function appendResearchSources(sources: Source[]) {
+  const researchId = getOngoingResearchId();
+  if (researchId) {
+    useStore.getState().appendResearchSources(researchId, sources);
+  }
 }
 
 export async function listenToPodcast(researchId: string) {

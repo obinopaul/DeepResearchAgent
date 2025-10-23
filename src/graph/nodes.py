@@ -751,9 +751,10 @@ def _extract_final_report_from_result(result: dict | Any) -> tuple[str, bool]:
 
 
 async def _execute_deepagent_step(
-    state: State, agent, agent_name: str
+    state: State, config: RunnableConfig, agent, agent_name: str
 ) -> Command[Literal["research_team", "__end__"]]:
     """Execute the full research brief with the deep agent in a single run."""
+    configurable = Configuration.from_runnable_config(config)
     current_plan = state.get("current_plan")
     if current_plan is None:
         logger.warning("No current plan present; skipping deep agent execution.")
@@ -1303,7 +1304,7 @@ async def _setup_and_execute_deep_agent_step(
         )
 
 
-        return await _execute_deepagent_step(state, agent, agent_type)
+        return await _execute_deepagent_step(state, config, agent, agent_type)
     else:
         # Use default tools if no MCP servers are configured
         llm_token_limit = get_llm_token_limit_by_type(AGENT_LLM_MAP[agent_type])
@@ -1329,7 +1330,7 @@ async def _setup_and_execute_deep_agent_step(
             research_timer_seconds = configurable.research_timer_seconds,
         )
 
-        return await _execute_deepagent_step(state, agent, agent_type)
+        return await _execute_deepagent_step(state, config, agent, agent_type)
 
 
 async def researcher_node(

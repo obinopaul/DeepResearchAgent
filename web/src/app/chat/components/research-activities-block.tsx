@@ -48,7 +48,7 @@ const MAX_IMAGE_ANIMATIONS = 4;
 const MAX_DOCUMENT_ANIMATIONS = 4;
 import { findMCPTool } from "~/core/mcp";
 import type { Message, ToolCallRuntime } from "~/core/messages";
-import { useMessage, useStore } from "~/core/store";
+import { appendResearchSources, useMessage, useStore, type Source } from "~/core/store";
 import { parseJSON } from "~/core/utils";
 import { cn } from "~/lib/utils";
 
@@ -378,9 +378,7 @@ function PlanStepRow({ step }: { step: DerivedStep }) {
             {statusMeta.label}
           </Badge>
         </div>
-        {step.description && (
-          <p className="mt-1 text-xs text-muted-foreground">{step.description}</p>
-        )}
+        
       </div>
     </div>
   );
@@ -444,56 +442,31 @@ function deriveSteps(
   todos: TodoItemLike[] | null,
   ongoing: boolean,
 ): DerivedStep[] {
-  const planSteps = planPayload?.steps ?? [];
   const todoSteps = todos ?? [];
 
   let derived: DerivedStep[] = [];
 
   if (todoSteps.length > 0) {
     derived = todoSteps.map((todoStep, index) => {
-      const planStep = planSteps[index];
       const title =
         pickFirstFilledText(
           todoStep?.title,
           todoStep?.content,
-          planStep?.title,
-          planStep?.content,
         ) ?? `Step ${index + 1}`;
-      const description =
-        pickFirstFilledText(todoStep?.description, planStep?.description) ?? "";
+      const description = "";
       const statusCandidate =
-        (typeof todoStep?.status === "string" ? todoStep.status : undefined) ??
-        planStep?.status;
+        typeof todoStep?.status === "string" ? todoStep.status : undefined;
       return {
         index,
         title,
         description,
         status: normalizeStatus(statusCandidate),
-        rawContent: todoStep?.content ?? planStep?.content,
+        rawContent: todoStep?.content,
       };
     });
-  } else if (planSteps.length > 0) {
-    derived = planSteps.map((planStep, index) => ({
-      index,
-      title:
-        pickFirstFilledText(planStep?.title, planStep?.content) ??
-        `Step ${index + 1}`,
-      description:
-        pickFirstFilledText(planStep?.description, planStep?.content) ?? "",
-      status: normalizeStatus(planStep?.status),
-      rawContent: planStep?.content,
-    }));
   }
 
-  if (ongoing && derived.length > 0) {
-    const hasActive = derived.some((step) => step.status === "in_progress");
-    if (!hasActive) {
-      const firstPending = derived.find((step) => step.status === "pending");
-      if (firstPending) {
-        firstPending.status = "in_progress";
-      }
-    }
-  }
+  
 
   return derived;
 }
@@ -988,6 +961,20 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
         undefined,
       );
       if (Array.isArray(parsed)) {
+        const pageResults = parsed.filter(
+          (
+            result,
+          ): result is Extract<SearchResult, { type: "page" }> =>
+            result?.type === "page" &&
+            typeof result.url === "string" &&
+            typeof result.title === "string",
+        );
+        if (pageResults.length > 0) {
+          appendResearchSources(
+            pageResults.map((r) => ({ url: r.url, title: r.title })),
+          );
+        }
+
         parsed.forEach((result) => {
           if (result?.type === "page" && typeof result.url === "string") {
             __pageCache.set(result.url, result.title ?? result.url);
@@ -1132,6 +1119,12 @@ function CrawlToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
     return "";
   }, [normalizedArgs]);
   const title = useMemo(() => __pageCache.get(url), [url]);
+
+  useEffect(() => {
+    if (url && title) {
+      appendResearchSources([{ url, title }]);
+    }
+  }, [url, title]);
   return (
     <section className="mt-4 pl-4">
       <div>
