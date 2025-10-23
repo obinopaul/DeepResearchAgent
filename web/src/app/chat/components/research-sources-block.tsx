@@ -20,7 +20,7 @@ export function ResearchSourcesBlock({
   );
 
   const sourcesMarkdown = sources
-    .map((source) => `- [${source.title.replaceAll("[“, “").replaceAll("]", "")}](${source.url})`)
+    .map((source) => `- [${source.title.replace(/[[\]]/g, "")}](${source.url})`)
     .join("\n");
 
   return (
