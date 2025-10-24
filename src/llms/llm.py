@@ -101,6 +101,10 @@ def _create_llm_use_conf(llm_type: LLMType, conf: Dict[str, Any]) -> BaseChatMod
     # Merge configurations, with environment variables taking precedence
     merged_conf = {**llm_conf, **env_conf}
 
+    if "base_url" in merged_conf and "deepseek" in merged_conf["base_url"]:
+        if "platform" in merged_conf:
+            merged_conf.pop("platform")
+
     # Remove unnecessary parameters when initializing the client
     if "token_limit" in merged_conf:
         merged_conf.pop("token_limit")

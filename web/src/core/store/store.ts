@@ -262,7 +262,11 @@ function findMessageByToolCallId(toolCallId: string) {
 }
 
 function appendMessage(message: Message) {
-  if (message.agent === "coder" || message.agent === "researcher") {
+  if (
+    message.agent === "coder" ||
+    message.agent === "researcher" ||
+    message.agent === "reporter"
+  ) {
     if (!getOngoingResearchId()) {
       const id = message.id;
       appendResearch(id);

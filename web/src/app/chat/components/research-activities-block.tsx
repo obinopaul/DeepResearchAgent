@@ -246,7 +246,7 @@ function PlanActivityOverview({
         >
           <div className="flex flex-1 flex-col gap-1">
             <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Deep Agent Plan
+              Deep Agent Status
             </p>
             <h3
               className={cn(

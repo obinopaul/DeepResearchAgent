@@ -148,6 +148,12 @@ def create_deep_agent(
         PatchToolCallsMiddleware(),
     ]
 
+    from src.agents.deep_agents.middleware.timer import ResearchTimerMiddleware
+    if middleware is not None:
+        for m in middleware:
+            if isinstance(m, ResearchTimerMiddleware):
+                subagent_base_middleware.append(m)
+
     deepagent_middleware = [
         TodoListMiddleware(),
         FilesystemMiddleware(

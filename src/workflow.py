@@ -2,8 +2,9 @@
 # SPDX-License-Identifier: MIT
 
 import logging
-
+import os
 from src.config.configuration import get_recursion_limit
+
 from src.graph import build_graph
 from langfuse.langchain import CallbackHandler 
 
@@ -24,7 +25,7 @@ logger = logging.getLogger(__name__)
 # Create the graph
 graph = build_graph()
 
-
+@observe()
 async def run_agent_workflow_async(
     user_input: str,
     debug: bool = False,
@@ -75,7 +76,10 @@ async def run_agent_workflow_async(
             },
         },
         "recursion_limit": get_recursion_limit(default=100),
-        "callbacks": [CallbackHandler()],
+        "callbacks": [CallbackHandler(
+                public_key=os.getenv("LANGFUSE_PUBLIC_KEY"),
+                secret_key=os.getenv("LANGFUSE_SECRET_KEY"),
+                host=os.getenv("LANGFUSE_HOST"))],
     }
     last_message_cnt = 0
     async for s in graph.astream(
