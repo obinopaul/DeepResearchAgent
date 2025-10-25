@@ -120,7 +120,7 @@
       "timer": "Timer",
       "timerTooltip": {
         "title": "Research Timer: {duration}",
-        "description": "Select how long the deep agent may explore before it is asked to wrap up."
+        "description": "Select how long the deep agent may explore each item in the Plan before it is asked to wrap up."
       },
       "timerMinutes": "{count} min"
     },

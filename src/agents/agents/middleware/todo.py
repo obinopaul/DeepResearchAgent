@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING, Annotated, Literal
 
 if TYPE_CHECKING:
@@ -118,10 +119,11 @@ Writing todos takes time and tokens, use it when it is helpful for managing comp
 @tool(description=WRITE_TODOS_TOOL_DESCRIPTION)
 def write_todos(todos: list[Todo], tool_call_id: Annotated[str, InjectedToolCallId]) -> Command:
     """Create and manage a structured task list for your current work session."""
+    todo_payload = json.dumps({"todos": todos}, ensure_ascii=False)
     return Command(
         update={
             "todos": todos,
-            "messages": [ToolMessage(f"Updated todo list to {todos}", tool_call_id=tool_call_id)],
+            "messages": [ToolMessage(todo_payload, tool_call_id=tool_call_id)],
         }
     )
 
@@ -182,11 +184,12 @@ class TodoListMiddleware(AgentMiddleware):
             todos: list[Todo], tool_call_id: Annotated[str, InjectedToolCallId]
         ) -> Command:
             """Create and manage a structured task list for your current work session."""
+            todo_payload = json.dumps({"todos": todos}, ensure_ascii=False)
             return Command(
                 update={
                     "todos": todos,
                     "messages": [
-                        ToolMessage(f"Updated todo list to {todos}", tool_call_id=tool_call_id)
+                        ToolMessage(todo_payload, tool_call_id=tool_call_id)
                     ],
                 }
             )

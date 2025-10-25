@@ -9,6 +9,7 @@ load_dotenv()
 # ----------------------------
 import base64
 import asyncio
+import hashlib
 import json
 import logging
 from typing import Annotated, Any, List, cast
@@ -322,6 +323,7 @@ async def _stream_graph_events(
         # Track which tool_call_ids are allowed to stream for researcher agent
         allowed_tool_ids: set[str] = set()
         emitted_report_messages: set[str] = set()
+        emitted_report_signatures: set[str] = set()
         async for agent, _, event_data in graph_instance.astream(
             workflow_input,
             config=workflow_config,
@@ -359,8 +361,15 @@ async def _stream_graph_events(
                             node_update.get("message_id")
                             or f"{agent_name}-final-{uuid4().hex}"
                         )
-                        if message_id not in emitted_report_messages:
+                        content_signature = hashlib.sha256(
+                            final_report_content.strip().encode("utf-8")
+                        ).hexdigest()
+                        if (
+                            message_id not in emitted_report_messages
+                            and content_signature not in emitted_report_signatures
+                        ):
                             emitted_report_messages.add(message_id)
+                            emitted_report_signatures.add(content_signature)
                             yield _make_event(
                                 "message_chunk",
                                 {

@@ -9,6 +9,7 @@ import { useShallow } from "zustand/react/shallow";
 import { chatStream, generatePodcast } from "../api";
 import type { Message, Resource } from "../messages";
 import { mergeMessage } from "../messages";
+import { extractTodosFromMessage, type TodoItem } from "../todos";
 import { parseJSON } from "../utils";
 
 import { getChatStreamSettings } from "./settings-store";
@@ -30,6 +31,8 @@ export const useStore = create<{
   researchReportIds: Map<string, string>;
   researchActivityIds: Map<string, string[]>;
   researchSources: Map<string, Source[]>;
+  researchTodos: Map<string, TodoItem[]>;
+  messageResearchIds: Map<string, string>;
   ongoingResearchId: string | null;
   openResearchId: string | null;
 
@@ -40,6 +43,8 @@ export const useStore = create<{
   closeResearch: () => void;
   setOngoingResearch: (researchId: string | null) => void;
   appendResearchSources: (researchId: string, sources: Source[]) => void;
+  setResearchTodos: (researchId: string, todos: TodoItem[]) => void;
+  linkMessageToResearch: (messageId: string, researchId: string) => void;
 }>((set) => ({
   responding: false,
   threadId: THREAD_ID,
@@ -50,6 +55,8 @@ export const useStore = create<{
   researchReportIds: new Map<string, string>(),
   researchActivityIds: new Map<string, string[]>(),
   researchSources: new Map<string, Source[]>(),
+  researchTodos: new Map<string, TodoItem[]>(),
+  messageResearchIds: new Map<string, string>(),
   ongoingResearchId: null,
   openResearchId: null,
 
@@ -70,6 +77,7 @@ export const useStore = create<{
       messages.forEach((m) => newMessages.set(m.id, m));
       return { messages: newMessages };
     });
+    messages.forEach((m) => ingestTodosFromMessage(m));
   },
   openResearch(researchId: string | null) {
     set({ openResearchId: researchId });
@@ -91,6 +99,26 @@ export const useStore = create<{
       }
       newResearchSources.set(researchId, [...existingSources, ...newSources]);
       return { researchSources: newResearchSources };
+    });
+  },
+  setResearchTodos(researchId: string, todos: TodoItem[]) {
+    set((state) => {
+      const prev = state.researchTodos.get(researchId);
+      if (isSameTodoSet(prev, todos)) {
+        return {};
+      }
+      const next = new Map(state.researchTodos).set(researchId, todos);
+      return { researchTodos: next };
+    });
+  },
+  linkMessageToResearch(messageId: string, researchId: string) {
+    set((state) => {
+      const current = state.messageResearchIds.get(messageId);
+      if (current === researchId) {
+        return {};
+      }
+      const next = new Map(state.messageResearchIds).set(messageId, researchId);
+      return { messageResearchIds: next };
     });
   },
 }));
@@ -162,7 +190,7 @@ export async function sendMessage(
           .find((id) => state.messages.get(id)?.agent === "planner");
         if (latestPlannerId) {
           const latestPlanner = state.messages.get(latestPlannerId);
-          if (latestPlanner && latestPlanner.isStreaming) {
+          if (latestPlanner?.isStreaming) {
             // Mark planner message as finished to enable HITL controls
             useStore.getState().updateMessage({
               ...latestPlanner,
@@ -261,6 +289,30 @@ function findMessageByToolCallId(toolCallId: string) {
     });
 }
 
+function isSameTodoSet(prev: TodoItem[] | undefined, next: TodoItem[]): boolean {
+  if (!prev) {
+    return next.length === 0;
+  }
+  if (prev.length !== next.length) {
+    return false;
+  }
+  for (let i = 0; i < prev.length; i += 1) {
+    const previous = prev[i]!;
+    const current = next[i]!;
+    if (
+      previous.content !== current.content ||
+      previous.title !== current.title ||
+      previous.description !== current.description ||
+      previous.status !== current.status ||
+      previous.rawContent !== current.rawContent ||
+      previous.rawStatus !== current.rawStatus
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function appendMessage(message: Message) {
   if (
     message.agent === "coder" ||
@@ -275,6 +327,7 @@ function appendMessage(message: Message) {
     appendResearchActivity(message);
   }
   useStore.getState().appendMessage(message);
+  ingestTodosFromMessage(message);
 }
 
 function updateMessage(message: Message) {
@@ -286,6 +339,7 @@ function updateMessage(message: Message) {
     useStore.getState().setOngoingResearch(null);
   }
   useStore.getState().updateMessage(message);
+  ingestTodosFromMessage(message);
 }
 
 function getOngoingResearchId() {
@@ -302,27 +356,44 @@ function appendResearch(researchId: string) {
       break;
     }
   }
-  const messageIds = [researchId];
-  messageIds.unshift(planMessage!.id);
-  useStore.setState({
-    ongoingResearchId: researchId,
-    researchIds: [...useStore.getState().researchIds, researchId],
-    researchPlanIds: new Map(useStore.getState().researchPlanIds).set(
+  if (!planMessage) {
+    return;
+  }
+  const planMessageId = planMessage.id;
+  const messageIds = [planMessageId, researchId];
+  useStore.setState((state) => {
+    const nextResearchIds = [...state.researchIds, researchId];
+    const nextResearchPlanIds = new Map(state.researchPlanIds).set(
       researchId,
-      planMessage!.id,
-    ),
-    researchActivityIds: new Map(useStore.getState().researchActivityIds).set(
+      planMessageId,
+    );
+    const nextResearchActivityIds = new Map(state.researchActivityIds).set(
       researchId,
       messageIds,
-    ),
+    );
+    const nextMessageResearchIds = new Map(state.messageResearchIds);
+    nextMessageResearchIds.set(planMessageId, researchId);
+    nextMessageResearchIds.set(researchId, researchId);
+    return {
+      ongoingResearchId: researchId,
+      researchIds: nextResearchIds,
+      researchPlanIds: nextResearchPlanIds,
+      researchActivityIds: nextResearchActivityIds,
+      messageResearchIds: nextMessageResearchIds,
+    };
   });
+
+  const planSnapshot = getMessage(planMessageId);
+  if (planSnapshot) {
+    ingestTodosFromMessage(planSnapshot, researchId);
+  }
 }
 
 function appendResearchActivity(message: Message) {
   const researchId = getOngoingResearchId();
   if (researchId) {
     const researchActivityIds = useStore.getState().researchActivityIds;
-    const current = researchActivityIds.get(researchId)!;
+    const current = researchActivityIds.get(researchId) ?? [];
     if (!current.includes(message.id)) {
       useStore.setState({
         researchActivityIds: new Map(researchActivityIds).set(researchId, [
@@ -331,6 +402,7 @@ function appendResearchActivity(message: Message) {
         ]),
       });
     }
+    useStore.getState().linkMessageToResearch(message.id, researchId);
     if (message.agent === "reporter") {
       useStore.setState({
         researchReportIds: new Map(useStore.getState().researchReportIds).set(
@@ -339,6 +411,19 @@ function appendResearchActivity(message: Message) {
         ),
       });
     }
+  }
+}
+
+function ingestTodosFromMessage(message: Message, researchIdOverride?: string) {
+  const researchId =
+    researchIdOverride ??
+    useStore.getState().messageResearchIds.get(message.id);
+  if (!researchId) {
+    return;
+  }
+  const todos = extractTodosFromMessage(message);
+  if (todos?.length) {
+    useStore.getState().setResearchTodos(researchId, todos);
   }
 }
 

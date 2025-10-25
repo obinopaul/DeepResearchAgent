@@ -2,10 +2,11 @@
 // SPDX-License-Identifier: MIT
 
 import { useTranslations } from "next-intl";
+import { useShallow } from "zustand/react/shallow";
+
+import { Markdown } from "~/components/deer-flow/markdown";
 import { useStore } from "~/core/store";
 import { cn } from "~/lib/utils";
-import { Markdown } from "~/components/deer-flow/markdown";
-import { useShallow } from "zustand/react/shallow";
 
 export function ResearchSourcesBlock({
   className,

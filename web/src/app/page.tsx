@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 import type { Metadata } from "next";
-
 import { useTranslations } from "next-intl";
 import { useMemo } from "react";
 

@@ -5,12 +5,7 @@ import { PythonOutlined } from "@ant-design/icons";
 import { motion } from "framer-motion";
 import { LRUCache } from "lru-cache";
 import { CheckCircle2, ChevronDown, Circle, Loader2 } from "lucide-react";
-import {
-  BookOpenText,
-  FileText,
-  PencilRuler,
-  Search,
-} from "lucide-react";
+import { BookOpenText, FileText, Search } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useTheme } from "next-themes";
 import React, { useEffect, useMemo, useState } from "react";
@@ -24,20 +19,21 @@ import Image from "~/components/deer-flow/image";
 import { LoadingAnimation } from "~/components/deer-flow/loading-animation";
 import { Markdown } from "~/components/deer-flow/markdown";
 import { RainbowText } from "~/components/deer-flow/rainbow-text";
-import { Tooltip } from "~/components/deer-flow/tooltip";
-import {
-  Accordion,
-  AccordionContent,
-  AccordionItem,
-  AccordionTrigger,
-} from "~/components/ui/accordion";
-import { Badge } from "~/components/ui/badge";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
 } from "~/components/ui/collapsible";
 import { Skeleton } from "~/components/ui/skeleton";
+import type { Message, ToolCallRuntime } from "~/core/messages";
+import { appendResearchSources, useMessage, useStore } from "~/core/store";
+import {
+  extractTodosFromMessages,
+  type TodoItem,
+  type TodoStatus,
+} from "~/core/todos";
+import { parseJSON } from "~/core/utils";
+import { cn } from "~/lib/utils";
 
 const MAX_ANIMATED_ACTIVITY_ITEMS = 10;
 const ACTIVITY_ANIMATION_DELAY = 0.05;
@@ -46,11 +42,6 @@ const MAX_PAGE_ANIMATIONS = 6;
 const MAX_IMAGE_RESULTS = 10;
 const MAX_IMAGE_ANIMATIONS = 4;
 const MAX_DOCUMENT_ANIMATIONS = 4;
-import { findMCPTool } from "~/core/mcp";
-import type { Message, ToolCallRuntime } from "~/core/messages";
-import { appendResearchSources, useMessage, useStore, type Source } from "~/core/store";
-import { parseJSON } from "~/core/utils";
-import { cn } from "~/lib/utils";
 
 export function ResearchActivitiesBlock({
   className,
@@ -77,6 +68,7 @@ export function ResearchActivitiesBlock({
       {planMessageId && (
         <div className="sticky top-2 z-20">
           <PlanActivityOverview
+            researchId={researchId}
             planMessageId={planMessageId}
             ongoing={ongoing}
             activityMessages={activityMessages}
@@ -121,8 +113,6 @@ export function ResearchActivitiesBlock({
   );
 }
 
-type TodoStatus = "pending" | "in_progress" | "completed";
-
 interface DerivedStep {
   index: number;
   title: string;
@@ -152,28 +142,27 @@ function pickFirstFilledText(
   return undefined;
 }
 
-function hasMeaningfulTodo(item?: TodoItemLike | null) {
-  if (!item) return false;
-  return Boolean(
-    pickFirstFilledText(item.content, item.title, item.description),
-  );
-}
-
 interface ToolActivitySummary {
   status: "running" | "finished";
   tool: "web_search" | "crawl_tool" | "local_search_tool" | "python_repl_tool";
   text: string;
 }
 function PlanActivityOverview({
+  researchId,
   planMessageId,
   ongoing,
   activityMessages,
 }: {
+  researchId: string;
   planMessageId: string;
   ongoing: boolean;
   activityMessages: Message[];
 }) {
   const planMessage = useMessage(planMessageId);
+
+  const persistedTodos = useStore(
+    (state) => state.researchTodos.get(researchId) ?? null,
+  );
 
   const planPayload = useMemo(() => {
     const parsed = parseJSON<Record<string, unknown> | null>(
@@ -195,22 +184,29 @@ function PlanActivityOverview({
     return { title, steps };
   }, [planMessage?.content]);
 
-  const todos = useMemo(
+  const liveTodos = useMemo(
     () => extractTodosFromMessages(activityMessages),
     [activityMessages],
   );
+
+  const todos: TodoItem[] | null = persistedTodos ?? liveTodos ?? null;
 
   const steps = useMemo<DerivedStep[]>(() => {
     const derived = deriveSteps(planPayload, todos, ongoing);
     return derived;
   }, [ongoing, planPayload, todos]);
 
+  const statusSummary = useMemo(() => summarizeStatuses(steps), [steps]);
   const progress = useMemo(() => computeProgress(steps, ongoing), [steps, ongoing]);
   const latestAction = useMemo(
     () => extractLatestToolActivity(activityMessages),
     [activityMessages],
   );
 
+  const hasSteps = steps.length > 0;
+  const safePercent = Number.isFinite(progress.percent) ? progress.percent : 0;
+  const progressWidth = Math.max(0, Math.min(safePercent, 100));
+  const percentLabel = Math.round(progressWidth);
   const [expanded, setExpanded] = useState(true);
 
   if (!planPayload && !steps.length) {
@@ -234,70 +230,86 @@ function PlanActivityOverview({
       open={expanded}
       onOpenChange={setExpanded}
       className={cn(
-        "rounded-2xl border border-border/60 bg-card/95 shadow-sm",
-        "supports-[backdrop-filter]:backdrop-blur",
+        "overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-card/95 via-card/90 to-background/90 shadow-lg",
+        "supports-[backdrop-filter]:backdrop-blur-md supports-[backdrop-filter]:bg-card/75",
       )}
     >
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            className="flex w-full items-start justify-between gap-3 rounded-2xl px-4 py-3 text-left transition-colors hover:bg-card/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-            aria-expanded={expanded}
+      <CollapsibleTrigger asChild>
+        <button
+          type="button"
+          className="flex w-full items-start justify-between gap-4 px-5 py-4 text-left transition-colors hover:bg-white/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 dark:hover:bg-slate-950/20"
+          aria-expanded={expanded}
         >
-          <div className="flex flex-1 flex-col gap-1">
-            <p className="text-xs uppercase tracking-wide text-muted-foreground">
-              Deep Agent Status
-            </p>
-            <h3
-              className={cn(
-                "font-semibold leading-tight",
-                expanded ? "text-lg" : "text-sm",
-              )}
-            >
+          <div className="flex flex-1 flex-col gap-2">
+            <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              Deep Agent Overview
+            </span>
+            <h3 className="text-lg font-semibold leading-tight text-foreground">
               {planPayload?.title ?? "Research Plan"}
             </h3>
-            {!expanded && (
+            {hasSteps && (
+              <div className="flex flex-wrap gap-2">
+                <StatusSummaryPill
+                  label="completed"
+                  value={statusSummary.completed}
+                  tone="success"
+                />
+                <StatusSummaryPill
+                  label="in progress"
+                  value={statusSummary.in_progress}
+                  tone="info"
+                />
+                <StatusSummaryPill
+                  label="pending"
+                  value={statusSummary.pending}
+                  tone="muted"
+                />
+              </div>
+            )}
+            {!expanded && hasSteps && (
               <p className="text-xs text-muted-foreground">
                 {progress.percent >= 100
                   ? "Plan completed"
-                  : `${progress.completed}/${steps.length} steps complete · ${Math.round(progress.percent)}%`}
+                  : `${progress.completed} done • ${statusSummary.in_progress} active • ${statusSummary.pending} waiting`}
               </p>
             )}
           </div>
-          <div className="flex items-center gap-3">
-            {steps.length > 0 && (
-              <Badge
-                variant="outline"
-                className="text-[11px] font-semibold uppercase tracking-tight text-muted-foreground"
-              >
-                {progress.completed}/{steps.length} steps
-              </Badge>
-            )}
-            <div className="flex h-8 w-8 items-center justify-center rounded-full border border-muted-foreground/40 bg-muted/40 text-muted-foreground transition-transform">
+          <div className="flex flex-col items-end gap-3">
+            <div className="flex items-center gap-2 rounded-full bg-muted/40 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+              <span>{percentLabel}%</span>
+              <span>
+                {progress.percent >= 100
+                  ? "Complete"
+                  : ongoing
+                    ? "Running"
+                    : "Standby"}
+              </span>
+            </div>
+            <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-background/70 text-muted-foreground">
               <ChevronDown
                 className={cn(
                   "h-4 w-4 transition-transform duration-300",
-                  expanded && "-rotate-180",
+                  expanded && "rotate-180",
                 )}
               />
             </div>
           </div>
         </button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="px-4 pb-4">
-        <div className="space-y-4">
-          {steps.length > 0 && (
-            <div>
-              <div className="relative h-2 rounded-full bg-muted/60">
+      <CollapsibleContent className="px-5 pb-5 pt-2">
+        <div className="space-y-5">
+          {hasSteps && (
+            <div className="space-y-2">
+              <div className="relative h-2 overflow-hidden rounded-full bg-muted/50">
                 <div
                   className={cn(
-                    "absolute left-0 top-0 h-2 rounded-full bg-primary transition-all duration-500",
-                    progress.percent === 0 && "bg-primary/60",
+                    "absolute left-0 top-0 h-full rounded-full bg-primary transition-all duration-500",
+                    progressWidth === 0 && "bg-primary/60",
                   )}
-                  style={{ width: `${progress.percent}%` }}
+                  style={{ width: `${progressWidth}%` }}
                 />
               </div>
-              <div className="mt-1 flex items-center justify-between text-xs text-muted-foreground">
+              <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                 <span>
                   {progress.percent >= 100
                     ? "Plan completed"
@@ -305,18 +317,20 @@ function PlanActivityOverview({
                       ? "Agent is executing tasks"
                       : "Awaiting agent activity"}
                 </span>
-                <span>{Math.round(progress.percent)}%</span>
+                <span>
+                  {progress.completed}/{steps.length} complete · {statusSummary.in_progress} active
+                </span>
               </div>
             </div>
           )}
 
           {progress.activeStep && (
-            <div className="rounded-xl border border-dashed border-primary/40 bg-background/80 p-3">
-              <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-muted-foreground">
-                <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />
+            <div className="rounded-2xl border border-primary/40 bg-primary/10 p-4">
+              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
                 Active Step
               </div>
-              <p className="mt-2 text-sm font-medium">
+              <p className="mt-2 text-sm font-semibold leading-snug text-foreground">
                 {progress.activeStep.index + 1}. {progress.activeStep.title}
               </p>
               {progress.activeStep.description && (
@@ -325,62 +339,130 @@ function PlanActivityOverview({
                 </p>
               )}
               {latestAction && (
-                <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                  {renderToolIcon(latestAction.tool, "h-4 w-4 text-primary/80")}
+                <div className="mt-3 flex items-center gap-2 rounded-full bg-background/70 px-3 py-1 text-xs text-muted-foreground">
+                  {renderToolIcon(latestAction.tool, "h-4 w-4 text-primary")}
                   <span>{latestAction.text}</span>
                 </div>
               )}
             </div>
           )}
 
-          <div className="max-h-[55vh] space-y-2 overflow-y-auto pr-1">
-            {steps.map((step) => (
-              <PlanStepRow key={step.index} step={step} />
-            ))}
-          </div>
+          {hasSteps && (
+            <div className="max-h-[55vh] overflow-y-auto pr-1">
+              <ol className="relative flex flex-col gap-4">
+                {steps.map((step, index) => (
+                  <PlanStepRow
+                    key={`${step.index}-${step.title}`}
+                    step={step}
+                    isLast={index === steps.length - 1}
+                  />
+                ))}
+              </ol>
+            </div>
+          )}
         </div>
-        </CollapsibleContent>
+      </CollapsibleContent>
     </Collapsible>
   );
 }
 
-function PlanStepRow({ step }: { step: DerivedStep }) {
-  const statusMeta = getStatusMeta(step.status);
+type StatusSummary = Record<TodoStatus, number>;
+
+function summarizeStatuses(steps: DerivedStep[]): StatusSummary {
+  return steps.reduce<StatusSummary>(
+    (acc, step) => {
+      acc[step.status] += 1;
+      return acc;
+    },
+    { completed: 0, in_progress: 0, pending: 0 },
+  );
+}
+
+function StatusSummaryPill({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "muted" | "info" | "success";
+}) {
+  const toneClassName =
+    tone === "success"
+      ? "border-emerald-400/40 bg-emerald-500/15 text-emerald-600"
+      : tone === "info"
+        ? "border-sky-400/40 bg-sky-500/15 text-sky-600"
+        : "border-border/60 bg-muted/30 text-muted-foreground";
   return (
-    <div
+    <span
       className={cn(
-        "flex items-start gap-3 rounded-xl border border-transparent px-3 py-2 transition-colors",
-        step.status === "in_progress" && "border-primary/40 bg-primary/5",
-        step.status === "completed" && "bg-muted/40",
-        step.status === "pending" && "hover:bg-muted/30",
+        "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-wide",
+        toneClassName,
+        value === 0 && "opacity-60",
       )}
     >
-      <div
+      <span>{value}</span>
+      <span>{label}</span>
+    </span>
+  );
+}
+
+function PlanStepRow({ step, isLast }: { step: DerivedStep; isLast: boolean }) {
+  const statusMeta = getStatusMeta(step.status);
+  const showRawContent =
+    typeof step.rawContent === "string" &&
+    step.rawContent.trim() &&
+    step.rawContent !== step.description &&
+    step.rawContent !== step.title;
+  return (
+    <li className="relative pl-9">
+      <span
+        aria-hidden
         className={cn(
-          "mt-0.5 flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full border text-xs",
+          "absolute left-0 top-2 flex h-6 w-6 items-center justify-center rounded-full border text-xs shadow-sm",
           statusMeta.indicatorClassName,
         )}
       >
         {statusMeta.icon}
-      </div>
-      <div className="flex-1">
+      </span>
+      {!isLast && (
+        <span
+          aria-hidden
+          className={cn(
+            "absolute left-[11px] top-8 h-full w-px bg-border/50",
+            statusMeta.connectorClassName,
+          )}
+        />
+      )}
+      <div
+        className={cn(
+          "rounded-2xl border px-4 py-3 transition-colors",
+          statusMeta.containerClassName,
+        )}
+      >
         <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm font-medium leading-snug">
+          <p className="text-sm font-semibold leading-snug">
             {step.index + 1}. {step.title}
           </p>
-          <Badge
-            variant={step.status === "pending" ? "outline" : "secondary"}
+          <span
             className={cn(
-              "text-[10px] uppercase tracking-wide",
-              step.status === "pending" && "bg-transparent text-muted-foreground",
+              "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              statusMeta.pillClassName,
             )}
           >
             {statusMeta.label}
-          </Badge>
+          </span>
         </div>
-        
+        {step.description && (
+          <p className="mt-1 text-xs text-muted-foreground">{step.description}</p>
+        )}
+        {showRawContent && (
+          <p className="mt-1 text-xs text-muted-foreground/80">
+            {step.rawContent}
+          </p>
+        )}
       </div>
-    </div>
+    </li>
   );
 }
 
@@ -392,29 +474,32 @@ function getStatusMeta(status: TodoStatus) {
         icon: <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />,
         indicatorClassName:
           "border-transparent bg-emerald-500/10 text-emerald-500",
+        containerClassName:
+          "border-emerald-400/30 bg-emerald-500/10 text-emerald-600",
+        pillClassName: "bg-emerald-500/15 text-emerald-600",
+        connectorClassName: "bg-emerald-500/40",
       };
     case "in_progress":
       return {
         label: "In progress",
         icon: <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />,
         indicatorClassName: "border-primary/60 bg-primary/10 text-primary",
+        containerClassName: "border-primary/50 bg-primary/10",
+        pillClassName: "bg-primary/15 text-primary",
+        connectorClassName: "bg-primary/40",
       };
     default:
       return {
         label: "Pending",
         icon: <Circle className="h-3.5 w-3.5 text-muted-foreground" />,
         indicatorClassName:
-          "border-dashed border-muted-foreground/40 text-muted-foreground",
+          "border-dashed border-muted-foreground/40 bg-background text-muted-foreground",
+        containerClassName: "border-border/60 bg-background/80",
+        pillClassName: "bg-muted/30 text-muted-foreground",
+        connectorClassName: "bg-border/50",
       };
   }
 }
-
-type TodoItemLike = {
-  content?: string;
-  description?: string;
-  title?: string;
-  status?: string;
-};
 
 function normalizePlanStep(step: unknown): PlanStepLike | null {
   if (!step || typeof step !== "object") return null;
@@ -439,58 +524,51 @@ function getStringField(
 
 function deriveSteps(
   planPayload: { steps: PlanStepLike[] } | null,
-  todos: TodoItemLike[] | null,
+  todos: TodoItem[] | null,
   ongoing: boolean,
 ): DerivedStep[] {
+  const planSteps = planPayload?.steps ?? [];
   const todoSteps = todos ?? [];
 
-  let derived: DerivedStep[] = [];
+  const total = Math.max(planSteps.length, todoSteps.length);
+  if (total === 0) {
+    return [];
+  }
 
-  if (todoSteps.length > 0) {
-    derived = todoSteps.map((todoStep, index) => {
-      const title =
-        pickFirstFilledText(
-          todoStep?.title,
-          todoStep?.content,
-        ) ?? `Step ${index + 1}`;
-      const description = "";
-      const statusCandidate =
-        typeof todoStep?.status === "string" ? todoStep.status : undefined;
-      return {
-        index,
-        title,
-        description,
-        status: normalizeStatus(statusCandidate),
-        rawContent: todoStep?.content,
-      };
+  const derived: DerivedStep[] = [];
+  for (let index = 0; index < total; index += 1) {
+    const planStep = planSteps[index];
+    const todo = todoSteps[index];
+    const title =
+      pickFirstFilledText(
+        todo?.title,
+        todo?.content,
+        planStep?.title,
+        planStep?.content,
+      ) ?? `Step ${index + 1}`;
+    const description =
+      pickFirstFilledText(
+        todo?.description,
+        planStep?.description,
+        planStep?.content,
+      ) ?? "";
+    const status = todo?.status ?? "pending";
+
+    derived.push({
+      index,
+      title,
+      description,
+      status,
+      rawContent: todo?.rawContent ?? todo?.content ?? undefined,
     });
   }
 
-  
+  const allPending = derived.every((step) => step.status === "pending");
+  if (ongoing && allPending && derived.length > 0) {
+    derived[0] = { ...derived[0], status: "in_progress" } as DerivedStep;
+  }
 
   return derived;
-}
-
-function normalizeStatus(status?: string | null): TodoStatus {
-  if (!status) return "pending";
-  const normalized = status.toLowerCase().replace(/[\s-]+/g, "_");
-  if (
-    normalized.includes("complete") ||
-    normalized === "done" ||
-    normalized === "finished" ||
-    normalized === "success"
-  ) {
-    return "completed";
-  }
-  if (
-    normalized.includes("progress") ||
-    normalized.includes("active") ||
-    normalized.includes("working") ||
-    normalized.includes("current")
-  ) {
-    return "in_progress";
-  }
-  return "pending";
 }
 
 function computeProgress(steps: DerivedStep[], ongoing: boolean) {
@@ -508,116 +586,6 @@ function computeProgress(steps: DerivedStep[], ongoing: boolean) {
   };
 }
 
-function extractTodosFromMessages(
-  messages: Message[],
-): TodoItemLike[] | null {
-  for (let i = messages.length - 1; i >= 0; i -= 1) {
-    const message = messages[i];
-    if (!message) {
-      continue;
-    }
-    const fromContent = parseTodoPayload(message.content);
-    if (fromContent?.length) {
-      return fromContent;
-    }
-    if (message.toolCalls?.length) {
-      for (const toolCall of message.toolCalls) {
-        if (!toolCall) continue;
-        const fromResult = parseTodoPayload(toolCall.result);
-        if (fromResult?.length) {
-          return fromResult;
-        }
-        const fromArgs = parseTodoPayload(toolCall.args);
-        if (fromArgs?.length) {
-          return fromArgs;
-        }
-      }
-    }
-  }
-  return null;
-}
-
-function parseTodoPayload(payload: unknown) {
-  if (payload == null) return null;
-  if (typeof payload === "string") {
-    const trimmed = payload.trim();
-    if (!trimmed) return null;
-    const parsed = parseJSON<unknown>(trimmed, undefined);
-    const normalized = normalizeTodoValue(parsed);
-    if (normalized?.length) {
-      return normalized;
-    }
-    const candidates = [trimmed.indexOf("{"), trimmed.indexOf("[")].filter(
-      (index) => index >= 0,
-    );
-    if (candidates.length) {
-      const jsonStart = Math.min(...candidates);
-      const startChar = trimmed[jsonStart]!;
-      const endChar = startChar === "{" ? "}" : "]";
-      const endIndex = trimmed.lastIndexOf(endChar);
-      if (endIndex > jsonStart) {
-        const candidate = trimmed.slice(jsonStart, endIndex + 1);
-        const parsedCandidate = parseJSON<unknown>(candidate, undefined);
-        return normalizeTodoValue(parsedCandidate);
-      }
-    }
-    return null;
-  }
-  return normalizeTodoValue(payload);
-}
-
-function normalizeTodoValue(value: unknown): TodoItemLike[] | null {
-  if (Array.isArray(value)) {
-    const todos = value
-      .map((item) => normalizeTodoItem(item))
-      .filter((item): item is TodoItemLike => hasMeaningfulTodo(item));
-    return todos.length ? todos : null;
-  }
-  if (value && typeof value === "object") {
-    const record = value as { todos?: unknown; state?: unknown };
-    if (Array.isArray(record.todos)) {
-      const todos = record.todos
-        .map((item) => normalizeTodoItem(item))
-        .filter((item): item is TodoItemLike => hasMeaningfulTodo(item));
-      return todos.length ? todos : null;
-    }
-    if (record.state && typeof record.state === "object") {
-      const stateRecord = record.state as { todos?: unknown };
-      if (Array.isArray(stateRecord.todos)) {
-        const todos = stateRecord.todos
-          .map((item) => normalizeTodoItem(item))
-          .filter((item): item is TodoItemLike => hasMeaningfulTodo(item));
-        return todos.length ? todos : null;
-      }
-    }
-  }
-  return null;
-}
-
-function normalizeTodoItem(item: unknown): TodoItemLike | null {
-  if (!item || typeof item !== "object") return null;
-  const record = item as (Partial<TodoItemLike> & { state?: string });
-  const contentCandidate = pickFirstFilledText(
-    record.content,
-    record.title,
-    record.description,
-  );
-  const description =
-    typeof record.description === "string" ? record.description : undefined;
-  const title = typeof record.title === "string" ? record.title : undefined;
-  const status =
-    typeof record.status === "string"
-      ? record.status
-      : typeof record.state === "string"
-        ? record.state
-        : undefined;
-  return {
-    content: contentCandidate,
-    description,
-    title,
-    status,
-  };
-}
 
 const SUMMARY_TOOLS = new Set([
   "web_search",
@@ -1109,7 +1077,7 @@ function CrawlToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
     [toolCall.args],
   );
   const url = useMemo(() => {
-    const value = normalizedArgs["url"];
+    const value = normalizedArgs.url;
     if (typeof value === "string" && value.trim()) {
       return value.trim();
     }
@@ -1170,7 +1138,7 @@ function RetrieverToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
     [toolCall.args],
   );
   const keywords = useMemo(() => {
-    const value = normalizedArgs["keywords"];
+    const value = normalizedArgs.keywords;
     if (typeof value === "string" && value.trim()) {
       return value.trim();
     }
@@ -1247,7 +1215,7 @@ function PythonToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
     [toolCall.args],
   );
   const code = useMemo<string | undefined>(() => {
-    const value = normalizedArgs["code"];
+    const value = normalizedArgs.code;
     if (typeof value === "string" && value.length) {
       return value;
     }
@@ -1333,50 +1301,5 @@ function PythonToolCallResult({ result }: { result: string }) {
         </SyntaxHighlighter>
       </div>
     </>
-  );
-}
-
-function MCPToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
-  const tool = useMemo(() => findMCPTool(toolCall.name), [toolCall.name]);
-  const { resolvedTheme } = useTheme();
-  return (
-    <section className="mt-4 pl-4">
-      <div className="w-fit overflow-y-auto rounded-md py-0">
-        <Accordion type="single" collapsible className="w-full">
-          <AccordionItem value="item-1">
-            <AccordionTrigger>
-              <Tooltip title={tool?.description}>
-                <div className="flex items-center font-medium italic">
-                  <PencilRuler size={16} className={"mr-2"} />
-                  <RainbowText
-                    className="pr-0.5 text-base font-medium italic"
-                    animated={toolCall.result === undefined}
-                  >
-                    Running {toolCall.name ? toolCall.name + "()" : "MCP tool"}
-                  </RainbowText>
-                </div>
-              </Tooltip>
-            </AccordionTrigger>
-            <AccordionContent>
-              {toolCall.result && (
-                <div className="bg-accent max-h-[400px] max-w-[560px] overflow-y-auto rounded-md text-sm">
-                  <SyntaxHighlighter
-                    language="json"
-                    style={resolvedTheme === "dark" ? dark : docco}
-                    customStyle={{
-                      background: "transparent",
-                      border: "none",
-                      boxShadow: "none",
-                    }}
-                  >
-                    {toolCall.result.trim()}
-                  </SyntaxHighlighter>
-                </div>
-              )}
-            </AccordionContent>
-          </AccordionItem>
-        </Accordion>
-      </div>
-    </section>
   );
 }
