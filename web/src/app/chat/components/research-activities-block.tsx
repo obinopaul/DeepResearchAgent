@@ -43,6 +43,8 @@ const MAX_PAGE_ANIMATIONS = 6;
 const MAX_IMAGE_RESULTS = 10;
 const MAX_IMAGE_ANIMATIONS = 4;
 const MAX_DOCUMENT_ANIMATIONS = 4;
+const MAX_ACTIVITY_DESCRIPTION_CHARS = 320;
+const MAX_ACTIVITY_RAW_PREVIEW_CHARS = 360;
 
 export function ResearchActivitiesBlock({
   className,
@@ -564,6 +566,7 @@ function ActivitiesSection({
   items: ProgressItem[];
 }) {
   const [openState, setOpenState] = useState<Record<string, boolean>>({});
+  const [detailState, setDetailState] = useState<Record<string, boolean>>({});
 
   const getStateKey = useCallback((item: ProgressItem) => {
     const title = item.title?.trim().toLowerCase();
@@ -583,6 +586,15 @@ function ActivitiesSection({
         return prev;
       }
       return { ...prev, [key]: open };
+    });
+  }, []);
+
+  const handleDetailToggle = useCallback((key: string, expanded: boolean) => {
+    setDetailState((prev) => {
+      if (prev[key] === expanded) {
+        return prev;
+      }
+      return { ...prev, [key]: expanded };
     });
   }, []);
 
@@ -611,6 +623,21 @@ function ActivitiesSection({
               typeof item.rawContent === "string" &&
               item.rawContent.trim() &&
               item.rawContent !== item.description;
+            const showAllDetails = detailState[stateKey] ?? false;
+            const plainRaw = showRawContent
+              ? markdownToPlainText(item.rawContent ?? "")
+              : "";
+            const truncatedDescription = item.description
+              ? truncateText(item.description, MAX_ACTIVITY_DESCRIPTION_CHARS)
+              : "";
+            const descriptionTruncated = Boolean(
+              item.description && truncatedDescription !== item.description,
+            );
+            const truncatedRaw = showRawContent
+              ? truncateText(plainRaw, MAX_ACTIVITY_RAW_PREVIEW_CHARS)
+              : "";
+            const rawTruncated = Boolean(showRawContent && truncatedRaw !== plainRaw);
+            const shouldShowToggle = descriptionTruncated || rawTruncated;
 
             return (
               <li key={key} className="list-none">
@@ -654,13 +681,28 @@ function ActivitiesSection({
                   <CollapsibleContent className="px-4 pb-4 pt-2 text-sm text-muted-foreground">
                     {item.description && (
                       <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-                        {item.description}
+                        {showAllDetails ? item.description : truncatedDescription}
                       </p>
                     )}
                     {showRawContent && (
                       <div className="mt-3 rounded-2xl border border-border/50 bg-background/80 p-3 text-xs leading-relaxed text-muted-foreground">
-                        <Markdown>{item.rawContent}</Markdown>
+                        {showAllDetails ? (
+                          <Markdown>{item.rawContent}</Markdown>
+                        ) : (
+                          <span className="whitespace-pre-wrap">
+                            {truncatedRaw}
+                          </span>
+                        )}
                       </div>
+                    )}
+                    {shouldShowToggle && (
+                      <button
+                        type="button"
+                        onClick={() => handleDetailToggle(stateKey, !showAllDetails)}
+                        className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                      >
+                        {showAllDetails ? "Show less details" : "Show full details"}
+                      </button>
                     )}
                   </CollapsibleContent>
                 </Collapsible>
@@ -1314,6 +1356,20 @@ function renderToolIcon(
 function truncateText(value: string, max = 80) {
   if (value.length <= max) return value;
   return `${value.slice(0, max - 1)}…`;
+}
+
+function markdownToPlainText(value: string): string {
+  return value
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/`([^`]*)`/g, "$1")
+  .replace(/\[([^\]]+)\]\([^\)]+\)/g, "$1")
+  .replace(/\*\*([^*]+)\*\*/g, "$1")
+  .replace(/\*([^*]+)\*/g, "$1")
+  .replace(/#+\s+/g, "")
+    .replace(/>\s?/g, "")
+    .replace(/[-*_]{3,}/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 const ActivityMessage = React.memo(({ messageId }: { messageId: string }) => {
