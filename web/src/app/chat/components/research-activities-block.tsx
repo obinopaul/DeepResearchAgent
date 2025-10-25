@@ -43,8 +43,7 @@ const MAX_PAGE_ANIMATIONS = 6;
 const MAX_IMAGE_RESULTS = 10;
 const MAX_IMAGE_ANIMATIONS = 4;
 const MAX_DOCUMENT_ANIMATIONS = 4;
-const MAX_ACTIVITY_DESCRIPTION_CHARS = 320;
-const MAX_ACTIVITY_RAW_PREVIEW_CHARS = 360;
+const MAX_ACTIVITY_PREVIEW_CHARS = 160;
 
 export function ResearchActivitiesBlock({
   className,
@@ -566,7 +565,6 @@ function ActivitiesSection({
   items: ProgressItem[];
 }) {
   const [openState, setOpenState] = useState<Record<string, boolean>>({});
-  const [detailState, setDetailState] = useState<Record<string, boolean>>({});
 
   const getStateKey = useCallback((item: ProgressItem) => {
     const title = item.title?.trim().toLowerCase();
@@ -589,15 +587,6 @@ function ActivitiesSection({
     });
   }, []);
 
-  const handleDetailToggle = useCallback((key: string, expanded: boolean) => {
-    setDetailState((prev) => {
-      if (prev[key] === expanded) {
-        return prev;
-      }
-      return { ...prev, [key]: expanded };
-    });
-  }, []);
-
   if (!items.length) {
     return null;
   }
@@ -617,27 +606,19 @@ function ActivitiesSection({
           {items.map((item) => {
             const stateKey = getStateKey(item);
             const key = `activity-${item.index}-${item.title}`;
-            const isOpen = openState[stateKey] ?? true;
+            const isOpen = openState[stateKey] ?? false;
             const statusMeta = getStatusMeta(item.status, item.kind);
             const showRawContent =
               typeof item.rawContent === "string" &&
               item.rawContent.trim() &&
               item.rawContent !== item.description;
-            const showAllDetails = detailState[stateKey] ?? false;
             const plainRaw = showRawContent
               ? markdownToPlainText(item.rawContent ?? "")
               : "";
-            const truncatedDescription = item.description
-              ? truncateText(item.description, MAX_ACTIVITY_DESCRIPTION_CHARS)
+            const previewSource = item.description || plainRaw;
+            const previewText = previewSource
+              ? truncateText(previewSource, MAX_ACTIVITY_PREVIEW_CHARS)
               : "";
-            const descriptionTruncated = Boolean(
-              item.description && truncatedDescription !== item.description,
-            );
-            const truncatedRaw = showRawContent
-              ? truncateText(plainRaw, MAX_ACTIVITY_RAW_PREVIEW_CHARS)
-              : "";
-            const rawTruncated = Boolean(showRawContent && truncatedRaw !== plainRaw);
-            const shouldShowToggle = descriptionTruncated || rawTruncated;
 
             return (
               <li key={key} className="list-none">
@@ -679,30 +660,14 @@ function ActivitiesSection({
                     </button>
                   </CollapsibleTrigger>
                   <CollapsibleContent className="px-4 pb-4 pt-2 text-sm text-muted-foreground">
-                    {item.description && (
+                    {previewText ? (
                       <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
-                        {showAllDetails ? item.description : truncatedDescription}
+                        {previewText}
                       </p>
-                    )}
-                    {showRawContent && (
-                      <div className="mt-3 rounded-2xl border border-border/50 bg-background/80 p-3 text-xs leading-relaxed text-muted-foreground">
-                        {showAllDetails ? (
-                          <Markdown>{item.rawContent}</Markdown>
-                        ) : (
-                          <span className="whitespace-pre-wrap">
-                            {truncatedRaw}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                    {shouldShowToggle && (
-                      <button
-                        type="button"
-                        onClick={() => handleDetailToggle(stateKey, !showAllDetails)}
-                        className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-primary transition-colors hover:text-primary/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
-                      >
-                        {showAllDetails ? "Show less details" : "Show full details"}
-                      </button>
+                    ) : (
+                      <p className="text-xs text-muted-foreground/80">
+                        No recent notes captured for this item.
+                      </p>
                     )}
                   </CollapsibleContent>
                 </Collapsible>
@@ -1368,8 +1333,8 @@ function markdownToPlainText(value: string): string {
   .replace(/#+\s+/g, "")
     .replace(/>\s?/g, "")
     .replace(/[-*_]{3,}/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+  .replace(/\s+/g, " ")
+  .trim();
 }
 
 const ActivityMessage = React.memo(({ messageId }: { messageId: string }) => {
