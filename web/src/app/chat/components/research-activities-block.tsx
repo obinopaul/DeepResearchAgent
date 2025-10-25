@@ -121,13 +121,6 @@ interface DerivedStep {
   rawContent?: string;
 }
 
-interface PlanStepLike {
-  title?: string;
-  description?: string;
-  status?: string;
-  content?: string;
-}
-
 function pickFirstFilledText(
   ...values: Array<string | null | undefined>
 ): string | undefined {
@@ -159,71 +152,90 @@ function PlanActivityOverview({
   activityMessages: Message[];
 }) {
   const planMessage = useMessage(planMessageId);
-
   const persistedTodos = useStore(
     (state) => state.researchTodos.get(researchId) ?? null,
   );
-
-  const planPayload = useMemo(() => {
-    const parsed = parseJSON<Record<string, unknown> | null>(
-      planMessage?.content,
-      null,
-    );
-    if (!parsed) {
-      return null;
-    }
-    const steps = Array.isArray(parsed.steps)
-      ? parsed.steps
-          .map((step) => normalizePlanStep(step))
-          .filter((step): step is PlanStepLike => step !== null)
-      : [];
-    const title =
-      typeof parsed.title === "string" && parsed.title.trim()
-        ? parsed.title.trim()
-        : "Research Plan";
-    return { title, steps };
-  }, [planMessage?.content]);
 
   const liveTodos = useMemo(
     () => extractTodosFromMessages(activityMessages),
     [activityMessages],
   );
 
-  const todos: TodoItem[] | null = persistedTodos ?? liveTodos ?? null;
+  const todos = useMemo(
+    () => persistedTodos ?? liveTodos ?? null,
+    [persistedTodos, liveTodos],
+  );
 
-  const steps = useMemo<DerivedStep[]>(() => {
-    const derived = deriveSteps(planPayload, todos, ongoing);
-    return derived;
-  }, [ongoing, planPayload, todos]);
+  const planTitle = useMemo(() => {
+    const content = planMessage?.content;
+    if (typeof content === "string") {
+      const parsed = parseJSON<Record<string, unknown> | null>(content, null);
+      if (parsed && typeof parsed.title === "string" && parsed.title.trim()) {
+        return parsed.title.trim();
+      }
+      const trimmed = content.trim();
+      if (trimmed) {
+        return trimmed;
+      }
+    }
+    if (Array.isArray(content)) {
+      const textPart = content
+        .map((part) => {
+          if (typeof part === "string") {
+            return part;
+          }
+          if (part && typeof part === "object" && "text" in part) {
+            const raw = (part as { text?: unknown }).text;
+            if (typeof raw === "string") {
+              return raw;
+            }
+          }
+          return "";
+        })
+        .find(
+          (value): value is string =>
+            typeof value === "string" && value.trim().length > 0,
+        );
+      if (textPart) {
+        return textPart.trim();
+      }
+    }
+    return null;
+  }, [planMessage?.content]);
+
+  const steps = useMemo<DerivedStep[]>(() => deriveSteps(todos), [todos]);
+  const hasSteps = steps.length > 0;
 
   const statusSummary = useMemo(() => summarizeStatuses(steps), [steps]);
-  const progress = useMemo(() => computeProgress(steps, ongoing), [steps, ongoing]);
+  const progress = useMemo(
+    () => computeProgress(steps, ongoing),
+    [steps, ongoing],
+  );
   const latestAction = useMemo(
     () => extractLatestToolActivity(activityMessages),
     [activityMessages],
   );
+  const activeStep = progress.activeStep;
 
-  const hasSteps = steps.length > 0;
   const safePercent = Number.isFinite(progress.percent) ? progress.percent : 0;
   const progressWidth = Math.max(0, Math.min(safePercent, 100));
   const percentLabel = Math.round(progressWidth);
   const [expanded, setExpanded] = useState(true);
+  const [activeExpanded, setActiveExpanded] = useState(true);
 
-  if (!planPayload && !steps.length) {
-    return (
-      <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
-        <div className="flex items-center gap-2">
-          <Loader2 className="h-4 w-4 animate-spin text-primary" />
-          <span className="text-sm font-medium text-muted-foreground">
-            Preparing research plan…
-          </span>
-        </div>
-        <p className="mt-2 text-xs text-muted-foreground">
-          The planner is generating actionable steps for this deep agent run.
-        </p>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (hasSteps) {
+      setExpanded(true);
+    }
+  }, [hasSteps]);
+
+  useEffect(() => {
+    if (activeStep) {
+      setActiveExpanded(true);
+    }
+  }, [activeStep]);
+
+  const headerTitle = planTitle ?? "Deep Agent Plan";
 
   return (
     <Collapsible
@@ -245,9 +257,9 @@ function PlanActivityOverview({
               Deep Agent Overview
             </span>
             <h3 className="text-lg font-semibold leading-tight text-foreground">
-              {planPayload?.title ?? "Research Plan"}
+              {headerTitle}
             </h3>
-            {hasSteps && (
+            {hasSteps ? (
               <div className="flex flex-wrap gap-2">
                 <StatusSummaryPill
                   label="completed"
@@ -265,11 +277,15 @@ function PlanActivityOverview({
                   tone="muted"
                 />
               </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Waiting for deep agent todo updates…
+              </p>
             )}
             {!expanded && hasSteps && (
               <p className="text-xs text-muted-foreground">
                 {progress.percent >= 100
-                  ? "Plan completed"
+                  ? "All todos completed"
                   : `${progress.completed} done • ${statusSummary.in_progress} active • ${statusSummary.pending} waiting`}
               </p>
             )}
@@ -298,7 +314,7 @@ function PlanActivityOverview({
       </CollapsibleTrigger>
       <CollapsibleContent className="px-5 pb-5 pt-2">
         <div className="space-y-5">
-          {hasSteps && (
+          {hasSteps ? (
             <div className="space-y-2">
               <div className="relative h-2 overflow-hidden rounded-full bg-muted/50">
                 <div
@@ -312,7 +328,7 @@ function PlanActivityOverview({
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                 <span>
                   {progress.percent >= 100
-                    ? "Plan completed"
+                    ? "All todos completed"
                     : ongoing
                       ? "Agent is executing tasks"
                       : "Awaiting agent activity"}
@@ -322,33 +338,57 @@ function PlanActivityOverview({
                 </span>
               </div>
             </div>
+          ) : (
+            <div className="rounded-2xl border border-dashed border-border/60 bg-background/80 p-4 text-xs text-muted-foreground">
+              The deep agent has not published any todos yet. Updates will appear here once they are available.
+            </div>
           )}
 
-          {progress.activeStep && (
+          {activeStep && hasSteps && (
             <div className="rounded-2xl border border-primary/40 bg-primary/10 p-4">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-primary">
-                <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                Active Step
-              </div>
-              <p className="mt-2 text-sm font-semibold leading-snug text-foreground">
-                {progress.activeStep.index + 1}. {progress.activeStep.title}
-              </p>
-              {progress.activeStep.description && (
-                <p className="mt-1 text-xs text-muted-foreground">
-                  {progress.activeStep.description}
-                </p>
-              )}
-              {latestAction && (
-                <div className="mt-3 flex items-center gap-2 rounded-full bg-background/70 px-3 py-1 text-xs text-muted-foreground">
-                  {renderToolIcon(latestAction.tool, "h-4 w-4 text-primary")}
-                  <span>{latestAction.text}</span>
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-primary">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  Active Step
                 </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveExpanded((prev) => !prev)}
+                  className="flex h-7 w-7 items-center justify-center rounded-full border border-primary/40 bg-primary/20 text-primary transition-colors hover:bg-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                  aria-expanded={activeExpanded}
+                  aria-label={activeExpanded ? "Collapse active step" : "Expand active step"}
+                >
+                  <ChevronDown
+                    className={cn(
+                      "h-4 w-4 transition-transform",
+                      activeExpanded ? "rotate-0" : "-rotate-90",
+                    )}
+                  />
+                </button>
+              </div>
+              <p className="mt-3 text-sm font-semibold leading-snug text-foreground">
+                {activeStep.index + 1}. {activeStep.title}
+              </p>
+              {activeExpanded && (
+                <>
+                  {activeStep.description && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {activeStep.description}
+                    </p>
+                  )}
+                  {latestAction && (
+                    <div className="mt-3 flex items-center gap-2 rounded-full bg-background/70 px-3 py-1 text-xs text-muted-foreground">
+                      {renderToolIcon(latestAction.tool, "h-4 w-4 text-primary")}
+                      <span>{latestAction.text}</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
           )}
 
           {hasSteps && (
-            <div className="max-h-[55vh] overflow-y-auto pr-1">
+            <div className="max-h-[60vh] overflow-y-auto overscroll-contain pr-3 pb-4">
               <ol className="relative flex flex-col gap-4">
                 {steps.map((step, index) => (
                   <PlanStepRow
@@ -501,74 +541,27 @@ function getStatusMeta(status: TodoStatus) {
   }
 }
 
-function normalizePlanStep(step: unknown): PlanStepLike | null {
-  if (!step || typeof step !== "object") return null;
-  const record = step as Record<string, unknown>;
-  const title =
-    getStringField(record, "title") ?? getStringField(record, "name");
-  const description =
-    getStringField(record, "description") ?? getStringField(record, "detail");
-  const status = getStringField(record, "status");
-  const content =
-    getStringField(record, "content") ?? getStringField(record, "task");
-  return { title, description, status, content };
-}
-
-function getStringField(
-  record: Record<string, unknown>,
-  key: string,
-): string | undefined {
-  const value = record[key];
-  return typeof value === "string" ? value : undefined;
-}
-
-function deriveSteps(
-  planPayload: { steps: PlanStepLike[] } | null,
-  todos: TodoItem[] | null,
-  ongoing: boolean,
-): DerivedStep[] {
-  const planSteps = planPayload?.steps ?? [];
-  const todoSteps = todos ?? [];
-
-  const total = Math.max(planSteps.length, todoSteps.length);
-  if (total === 0) {
+function deriveSteps(todos: TodoItem[] | null): DerivedStep[] {
+  if (!todos?.length) {
     return [];
   }
 
-  const derived: DerivedStep[] = [];
-  for (let index = 0; index < total; index += 1) {
-    const planStep = planSteps[index];
-    const todo = todoSteps[index];
+  return todos.map((todo, index) => {
     const title =
-      pickFirstFilledText(
-        todo?.title,
-        todo?.content,
-        planStep?.title,
-        planStep?.content,
-      ) ?? `Step ${index + 1}`;
-    const description =
-      pickFirstFilledText(
-        todo?.description,
-        planStep?.description,
-        planStep?.content,
-      ) ?? "";
-    const status = todo?.status ?? "pending";
+      pickFirstFilledText(todo.title, todo.content) ?? `Task ${index + 1}`;
+    const description = pickFirstFilledText(
+      todo.description,
+      todo.rawContent,
+    );
 
-    derived.push({
+    return {
       index,
       title,
-      description,
-      status,
-      rawContent: todo?.rawContent ?? todo?.content ?? undefined,
-    });
-  }
-
-  const allPending = derived.every((step) => step.status === "pending");
-  if (ongoing && allPending && derived.length > 0) {
-    derived[0] = { ...derived[0], status: "in_progress" } as DerivedStep;
-  }
-
-  return derived;
+      description: description ?? "",
+      status: todo.status ?? "pending",
+      rawContent: todo.rawContent ?? todo.content ?? undefined,
+    };
+  });
 }
 
 function computeProgress(steps: DerivedStep[], ongoing: boolean) {
