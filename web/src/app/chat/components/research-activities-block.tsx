@@ -24,7 +24,6 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "~/components/ui/collapsible";
-import { ScrollArea, ScrollBar } from "~/components/ui/scroll-area";
 import { Skeleton } from "~/components/ui/skeleton";
 import type { Message, ToolCallRuntime } from "~/core/messages";
 import { appendResearchSources, useMessage, useStore } from "~/core/store";
@@ -379,8 +378,8 @@ function PlanActivityOverview({
           </div>
         </button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="flex-1 overflow-hidden px-5 pb-5 pt-2">
-        <ScrollArea type="always" className="h-full pr-1">
+      <CollapsibleContent className="px-5 pb-5 pt-2">
+        <div className="deep-plan-scroll max-h-[65vh] overflow-y-auto pr-4" style={{ scrollbarGutter: "stable both-edges" }}>
           <div className="space-y-5 pb-3">
           {primaryCount > 0 ? (
             <div className="space-y-2">
@@ -470,8 +469,7 @@ function PlanActivityOverview({
             />
           )}
           </div>
-          <ScrollBar orientation="vertical" className="pr-1" />
-        </ScrollArea>
+        </div>
       </CollapsibleContent>
     </Collapsible>
   );
