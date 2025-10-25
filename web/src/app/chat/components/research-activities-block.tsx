@@ -8,7 +8,7 @@ import { CheckCircle2, ChevronDown, Circle, Loader2 } from "lucide-react";
 import { BookOpenText, FileText, Search } from "lucide-react";
 import { useTranslations } from "next-intl";
 import { useTheme } from "next-themes";
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import SyntaxHighlighter from "react-syntax-highlighter";
 import { docco } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { dark } from "react-syntax-highlighter/dist/esm/styles/prism";
@@ -24,10 +24,12 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from "~/components/ui/collapsible";
+import { ScrollArea, ScrollBar } from "~/components/ui/scroll-area";
 import { Skeleton } from "~/components/ui/skeleton";
 import type { Message, ToolCallRuntime } from "~/core/messages";
 import { appendResearchSources, useMessage, useStore } from "~/core/store";
 import {
+  extractTodosFromMessage,
   extractTodosFromMessages,
   type TodoItem,
   type TodoStatus,
@@ -113,12 +115,44 @@ export function ResearchActivitiesBlock({
   );
 }
 
-interface DerivedStep {
+type ProgressItemKind = "step" | "activity";
+
+interface PlannerSubStep {
+  index: number;
+  title: string;
+  description?: string;
+  status: TodoStatus;
+  rawContent?: string;
+}
+
+interface TodoSession {
+  signature: string;
+  messageId: string;
+}
+
+interface ProgressItem {
   index: number;
   title: string;
   description: string;
   status: TodoStatus;
   rawContent?: string;
+  rawStatus?: string;
+  kind: ProgressItemKind;
+  subSteps?: PlannerSubStep[];
+}
+
+interface PlanPayload {
+  title: string | null;
+  steps: PlanStep[];
+}
+
+interface PlanStep {
+  title?: string;
+  description?: string;
+  status?: string;
+  content?: string;
+  detail?: string;
+  name?: string;
 }
 
 function pickFirstFilledText(
@@ -156,6 +190,12 @@ function PlanActivityOverview({
     (state) => state.researchTodos.get(researchId) ?? null,
   );
 
+  const planPayload = useMemo(
+    () => parsePlanPayload(planMessage?.content),
+    [planMessage?.content],
+  );
+  const planTitle = planPayload?.title ?? "Deep Agent Plan";
+
   const liveTodos = useMemo(
     () => extractTodosFromMessages(activityMessages),
     [activityMessages],
@@ -166,76 +206,101 @@ function PlanActivityOverview({
     [persistedTodos, liveTodos],
   );
 
-  const planTitle = useMemo(() => {
-    const content = planMessage?.content;
-    if (typeof content === "string") {
-      const parsed = parseJSON<Record<string, unknown> | null>(content, null);
-      if (parsed && typeof parsed.title === "string" && parsed.title.trim()) {
-        return parsed.title.trim();
-      }
-      const trimmed = content.trim();
-      if (trimmed) {
-        return trimmed;
-      }
-    }
-    if (Array.isArray(content)) {
-      const textPart = content
-        .map((part) => {
-          if (typeof part === "string") {
-            return part;
-          }
-          if (part && typeof part === "object" && "text" in part) {
-            const raw = (part as { text?: unknown }).text;
-            if (typeof raw === "string") {
-              return raw;
-            }
-          }
-          return "";
-        })
-        .find(
-          (value): value is string =>
-            typeof value === "string" && value.trim().length > 0,
-        );
-      if (textPart) {
-        return textPart.trim();
-      }
-    }
-    return null;
-  }, [planMessage?.content]);
+  const activities = useMemo(
+    () => deriveActivities(todos),
+    [todos],
+  );
+  const todoSessions = useMemo(
+    () => deriveTodoSessions(activityMessages),
+    [activityMessages],
+  );
 
-  const steps = useMemo<DerivedStep[]>(() => deriveSteps(todos), [todos]);
-  const hasSteps = steps.length > 0;
+  const plannerSteps = useMemo(
+    () => derivePlannerSteps(planPayload, ongoing, todoSessions),
+    [planPayload, ongoing, todoSessions],
+  );
 
-  const statusSummary = useMemo(() => summarizeStatuses(steps), [steps]);
+  const hasSteps = plannerSteps.length > 0;
+  const hasActivities = activities.length > 0;
+  const primaryItems = hasSteps ? plannerSteps : [];
+  const primaryCount = primaryItems.length;
+
+  const stepSummary = useMemo(
+    () => summarizeStatuses(plannerSteps),
+    [plannerSteps],
+  );
   const progress = useMemo(
-    () => computeProgress(steps, ongoing),
-    [steps, ongoing],
+    () => computeProgress(primaryItems, ongoing),
+    [primaryItems, ongoing],
   );
   const latestAction = useMemo(
     () => extractLatestToolActivity(activityMessages),
     [activityMessages],
   );
-  const activeStep = progress.activeStep;
+  const activeItem = progress.activeStep;
 
   const safePercent = Number.isFinite(progress.percent) ? progress.percent : 0;
   const progressWidth = Math.max(0, Math.min(safePercent, 100));
   const percentLabel = Math.round(progressWidth);
   const [expanded, setExpanded] = useState(true);
   const [activeExpanded, setActiveExpanded] = useState(true);
+  const [userCollapsedActive, setUserCollapsedActive] = useState(false);
+  const previousActiveIndexRef = useRef<number | null>(null);
 
   useEffect(() => {
-    if (hasSteps) {
+    if (primaryCount > 0) {
       setExpanded(true);
     }
-  }, [hasSteps]);
+  }, [primaryCount]);
 
   useEffect(() => {
-    if (activeStep) {
+    if (!activeItem) {
+      previousActiveIndexRef.current = null;
+      setUserCollapsedActive(false);
+      return;
+    }
+
+    const currentIndex = activeItem.index;
+    if (previousActiveIndexRef.current !== currentIndex) {
+      previousActiveIndexRef.current = currentIndex;
+      setActiveExpanded(true);
+      setUserCollapsedActive(false);
+      return;
+    }
+
+    if (!userCollapsedActive && !activeExpanded) {
       setActiveExpanded(true);
     }
-  }, [activeStep]);
+  }, [activeItem, activeExpanded, userCollapsedActive]);
 
-  const headerTitle = planTitle ?? "Deep Agent Plan";
+  const handleToggleActive = () => {
+    setActiveExpanded((prev) => {
+      const next = !prev;
+      setUserCollapsedActive(!next);
+      return next;
+    });
+  };
+
+  const progressNoun = "planner loops";
+  const activeLabel =
+    activeItem?.kind === "activity" ? "Active Activity" : "Active Planner Loop";
+  const collapsedSummaryText = hasSteps ? formatSummary(stepSummary) : "";
+
+  if (!hasSteps && !hasActivities) {
+    return (
+      <div className="rounded-2xl border border-border/60 bg-card/80 p-4">
+        <div className="flex items-center gap-2">
+          <Loader2 className="h-4 w-4 animate-spin text-primary" />
+          <span className="text-sm font-medium text-muted-foreground">
+            Preparing deep agent plan…
+          </span>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Planner steps and activities will appear here once execution begins.
+        </p>
+      </div>
+    );
+  }
 
   return (
     <Collapsible
@@ -257,50 +322,52 @@ function PlanActivityOverview({
               Deep Agent Overview
             </span>
             <h3 className="text-lg font-semibold leading-tight text-foreground">
-              {headerTitle}
+              {planTitle}
             </h3>
             {hasSteps ? (
               <div className="flex flex-wrap gap-2">
                 <StatusSummaryPill
                   label="completed"
-                  value={statusSummary.completed}
+                  value={stepSummary.completed}
                   tone="success"
                 />
                 <StatusSummaryPill
                   label="in progress"
-                  value={statusSummary.in_progress}
+                  value={stepSummary.in_progress}
                   tone="info"
                 />
                 <StatusSummaryPill
                   label="pending"
-                  value={statusSummary.pending}
+                  value={stepSummary.pending}
                   tone="muted"
                 />
               </div>
-            ) : (
-              <p className="text-xs text-muted-foreground">
-                Waiting for deep agent todo updates…
+            ) : hasActivities ? (
+              <p className="max-w-xl text-[11px] text-muted-foreground">
+                Deep agent to-dos update independently; expand items below to see the latest notes.
               </p>
-            )}
-            {!expanded && hasSteps && (
+            ) : null}
+            {!expanded && primaryCount > 0 && (
               <p className="text-xs text-muted-foreground">
                 {progress.percent >= 100
-                  ? "All todos completed"
-                  : `${progress.completed} done • ${statusSummary.in_progress} active • ${statusSummary.pending} waiting`}
+                  ? `All ${progressNoun} completed`
+                  : collapsedSummaryText}
               </p>
             )}
           </div>
           <div className="flex flex-col items-end gap-3">
-            <div className="flex items-center gap-2 rounded-full bg-muted/40 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-              <span>{percentLabel}%</span>
-              <span>
-                {progress.percent >= 100
-                  ? "Complete"
-                  : ongoing
-                    ? "Running"
-                    : "Standby"}
-              </span>
-            </div>
+            {primaryCount > 0 && (
+              <div className="flex items-center gap-2 rounded-full bg-muted/40 px-3 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+                <span>{percentLabel}%</span>
+                <span>
+                  {progress.percent >= 100
+                    ? "Complete"
+                    : ongoing
+                      ? "Running"
+                      : "Standby"}
+                </span>
+              </div>
+            )}
             <div className="flex h-8 w-8 items-center justify-center rounded-full border border-border/60 bg-background/70 text-muted-foreground">
               <ChevronDown
                 className={cn(
@@ -313,8 +380,9 @@ function PlanActivityOverview({
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent className="px-5 pb-5 pt-2">
-        <div className="space-y-5">
-          {hasSteps ? (
+        <ScrollArea className="max-h-[72vh] pr-1">
+          <div className="space-y-5 pb-3">
+          {primaryCount > 0 ? (
             <div className="space-y-2">
               <div className="relative h-2 overflow-hidden rounded-full bg-muted/50">
                 <div
@@ -328,35 +396,35 @@ function PlanActivityOverview({
               <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
                 <span>
                   {progress.percent >= 100
-                    ? "All todos completed"
+                    ? `All ${progressNoun} completed`
                     : ongoing
-                      ? "Agent is executing tasks"
-                      : "Awaiting agent activity"}
+                      ? `Agent is executing ${progressNoun}`
+                      : `Awaiting agent ${progressNoun}`}
                 </span>
                 <span>
-                  {progress.completed}/{steps.length} complete · {statusSummary.in_progress} active
+                  {progress.completed}/{primaryCount} complete · {stepSummary.in_progress} active
                 </span>
               </div>
             </div>
           ) : (
             <div className="rounded-2xl border border-dashed border-border/60 bg-background/80 p-4 text-xs text-muted-foreground">
-              The deep agent has not published any todos yet. Updates will appear here once they are available.
+              Planner loop progress will appear here once the agent begins executing the plan.
             </div>
           )}
 
-          {activeStep && hasSteps && (
+          {activeItem && (
             <div className="rounded-2xl border border-primary/40 bg-primary/10 p-4">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wide text-primary">
                   <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                  Active Step
+                  {activeLabel}
                 </div>
                 <button
                   type="button"
-                  onClick={() => setActiveExpanded((prev) => !prev)}
+                  onClick={handleToggleActive}
                   className="flex h-7 w-7 items-center justify-center rounded-full border border-primary/40 bg-primary/20 text-primary transition-colors hover:bg-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
                   aria-expanded={activeExpanded}
-                  aria-label={activeExpanded ? "Collapse active step" : "Expand active step"}
+                  aria-label={activeExpanded ? "Collapse active item" : "Expand active item"}
                 >
                   <ChevronDown
                     className={cn(
@@ -367,13 +435,13 @@ function PlanActivityOverview({
                 </button>
               </div>
               <p className="mt-3 text-sm font-semibold leading-snug text-foreground">
-                {activeStep.index + 1}. {activeStep.title}
+                {activeItem.index + 1}. {activeItem.title}
               </p>
               {activeExpanded && (
                 <>
-                  {activeStep.description && (
+                  {activeItem.description && (
                     <p className="mt-1 text-xs text-muted-foreground">
-                      {activeStep.description}
+                      {activeItem.description}
                     </p>
                   )}
                   {latestAction && (
@@ -387,20 +455,23 @@ function PlanActivityOverview({
             </div>
           )}
 
-          {hasSteps && (
-            <div className="max-h-[60vh] overflow-y-auto overscroll-contain pr-3 pb-4">
-              <ol className="relative flex flex-col gap-4">
-                {steps.map((step, index) => (
-                  <PlanStepRow
-                    key={`${step.index}-${step.title}`}
-                    step={step}
-                    isLast={index === steps.length - 1}
-                  />
-                ))}
-              </ol>
-            </div>
+          {hasActivities && (
+            <ActivitiesSection
+              title="Deep Agent Activities"
+              items={activities}
+            />
           )}
-        </div>
+
+          {hasSteps && (
+            <StepLoopSection
+              title="Deep Agent Steps"
+              items={plannerSteps}
+              summary={stepSummary}
+            />
+          )}
+          </div>
+          <ScrollBar orientation="vertical" className="pr-1" />
+        </ScrollArea>
       </CollapsibleContent>
     </Collapsible>
   );
@@ -408,14 +479,18 @@ function PlanActivityOverview({
 
 type StatusSummary = Record<TodoStatus, number>;
 
-function summarizeStatuses(steps: DerivedStep[]): StatusSummary {
-  return steps.reduce<StatusSummary>(
-    (acc, step) => {
-      acc[step.status] += 1;
+function summarizeStatuses(items: ProgressItem[]): StatusSummary {
+  return items.reduce<StatusSummary>(
+    (acc, item) => {
+      acc[item.status] = (acc[item.status] ?? 0) + 1;
       return acc;
     },
     { completed: 0, in_progress: 0, pending: 0 },
   );
+}
+
+function formatSummary(summary: StatusSummary): string {
+  return `${summary.completed} done • ${summary.in_progress} active • ${summary.pending} waiting`;
 }
 
 function StatusSummaryPill({
@@ -446,67 +521,221 @@ function StatusSummaryPill({
     </span>
   );
 }
+function StepLoopSection({
+  title,
+  items,
+  summary,
+}: {
+  title: string;
+  items: ProgressItem[];
+  summary: StatusSummary;
+}) {
+  if (!items.length) {
+    return null;
+  }
 
-function PlanStepRow({ step, isLast }: { step: DerivedStep; isLast: boolean }) {
-  const statusMeta = getStatusMeta(step.status);
-  const showRawContent =
-    typeof step.rawContent === "string" &&
-    step.rawContent.trim() &&
-    step.rawContent !== step.description &&
-    step.rawContent !== step.title;
   return (
-    <li className="relative pl-9">
-      <span
-        aria-hidden
-        className={cn(
-          "absolute left-0 top-2 flex h-6 w-6 items-center justify-center rounded-full border text-xs shadow-sm",
-          statusMeta.indicatorClassName,
-        )}
-      >
-        {statusMeta.icon}
-      </span>
-      {!isLast && (
-        <span
-          aria-hidden
-          className={cn(
-            "absolute left-[11px] top-8 h-full w-px bg-border/50",
-            statusMeta.connectorClassName,
-          )}
-        />
-      )}
-      <div
-        className={cn(
-          "rounded-2xl border px-4 py-3 transition-colors",
-          statusMeta.containerClassName,
-        )}
-      >
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm font-semibold leading-snug">
-            {step.index + 1}. {step.title}
-          </p>
+    <section className="rounded-3xl border border-border/60 bg-card/95 shadow-sm">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          {title}
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          {formatSummary(summary)}
+        </span>
+      </header>
+      <div className="mt-3 px-4 pb-4">
+        <ul className="space-y-4">
+          {items.map((item) => (
+            <StepClusterCard
+              key={`step-cluster-${item.index}-${item.title}`}
+              item={item}
+            />
+          ))}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function ActivitiesSection({
+  title,
+  items,
+}: {
+  title: string;
+  items: ProgressItem[];
+}) {
+  const [openState, setOpenState] = useState<Record<string, boolean>>({});
+
+  const handleOpenChange = useCallback((key: string, open: boolean) => {
+    setOpenState((prev) => ({ ...prev, [key]: open }));
+  }, []);
+
+  if (!items.length) {
+    return null;
+  }
+
+  return (
+    <section className="rounded-3xl border border-border/60 bg-card/95 shadow-sm">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-4 pt-4">
+        <span className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+          {title}
+        </span>
+        <span className="text-[11px] text-muted-foreground">
+          Click a to-do to expand its details
+        </span>
+      </header>
+      <div className="mt-3 px-2 pb-4">
+        <ul className="space-y-3">
+          {items.map((item) => {
+            const key = `activity-${item.index}-${item.title}`;
+            const isOpen = openState[key] ?? true;
+            const statusMeta = getStatusMeta(item.status, item.kind);
+            const showRawContent =
+              typeof item.rawContent === "string" &&
+              item.rawContent.trim() &&
+              item.rawContent !== item.description;
+
+            return (
+              <li key={key} className="list-none">
+                <Collapsible open={isOpen} onOpenChange={(open) => handleOpenChange(key, open)}>
+                  <CollapsibleTrigger asChild>
+                    <button
+                      type="button"
+                      className="flex w-full items-center justify-between gap-3 rounded-2xl border border-border/60 bg-background/85 px-4 py-3 text-left transition-colors hover:border-primary/40 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60"
+                    >
+                      <div className="flex flex-1 flex-col gap-1">
+                        <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                          To-do {item.index + 1}
+                        </span>
+                        <p className="line-clamp-2 text-sm font-semibold leading-snug text-foreground">
+                          {item.title}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={cn(
+                            "flex h-6 w-6 items-center justify-center rounded-full border text-xs",
+                            statusMeta.indicatorClassName,
+                          )}
+                          aria-hidden
+                        >
+                          {statusMeta.icon}
+                        </span>
+                        {item.rawStatus && (
+                          <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                            {item.rawStatus}
+                          </span>
+                        )}
+                        <span className="flex h-7 w-7 items-center justify-center rounded-full border border-border/40 bg-background/70 text-muted-foreground transition-transform duration-300">
+                          <ChevronDown
+                            className={cn("h-4 w-4 transition-transform", isOpen ? "rotate-180" : "rotate-0")}
+                          />
+                        </span>
+                      </div>
+                    </button>
+                  </CollapsibleTrigger>
+                  <CollapsibleContent className="px-4 pb-4 pt-2 text-sm text-muted-foreground">
+                    {item.description && (
+                      <p className="whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+                        {item.description}
+                      </p>
+                    )}
+                    {showRawContent && (
+                      <div className="mt-3 rounded-2xl border border-border/50 bg-background/80 p-3 text-xs leading-relaxed text-muted-foreground">
+                        <Markdown>{item.rawContent}</Markdown>
+                      </div>
+                    )}
+                  </CollapsibleContent>
+                </Collapsible>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function StepClusterCard({ item }: { item: ProgressItem }) {
+  const statusMeta = getStatusMeta(item.status, "step");
+  const subSteps = item.subSteps ?? [];
+
+  return (
+    <li className="list-none rounded-3xl border border-border/60 bg-background/90 shadow-sm transition-all duration-300 hover:border-primary/40 hover:shadow-lg">
+      <div className="flex flex-col gap-4 px-5 py-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="flex flex-1 flex-col gap-1">
+            <span className="text-[10px] font-semibold uppercase tracking-[0.2em] text-primary/70">
+              Step Pair {item.index + 1}
+            </span>
+            <h4 className="text-base font-semibold leading-snug text-foreground">
+              {item.title}
+            </h4>
+            {item.description && (
+              <p className="text-xs text-muted-foreground">{item.description}</p>
+            )}
+          </div>
           <span
             className={cn(
-              "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+              "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[10px] font-semibold uppercase tracking-wide shadow-sm",
               statusMeta.pillClassName,
+              "border-current/40 bg-background/70",
             )}
           >
-            {statusMeta.label}
+            {statusMeta.icon}
+            <span>{statusMeta.label}</span>
           </span>
         </div>
-        {step.description && (
-          <p className="mt-1 text-xs text-muted-foreground">{step.description}</p>
-        )}
-        {showRawContent && (
-          <p className="mt-1 text-xs text-muted-foreground/80">
-            {step.rawContent}
-          </p>
+
+        {subSteps.length > 0 && (
+          <div className="grid gap-3 md:grid-cols-2">
+            {subSteps.map((subStep) => {
+              const subMeta = getStatusMeta(subStep.status, "step");
+              const isActive = subStep.status === "in_progress";
+              const isCompleted = subStep.status === "completed";
+              return (
+                <div
+                  key={`sub-step-${subStep.index}`}
+                  className={cn(
+                    "group rounded-2xl border border-border/60 bg-card/90 p-4 shadow-sm transition-all duration-300",
+                    "hover:border-primary/40 hover:bg-primary/5 hover:shadow-md",
+                    isActive && "border-primary/50 bg-primary/10 ring-1 ring-primary/40",
+                    isCompleted && "border-emerald-400/30 bg-emerald-500/10",
+                  )}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground/70">
+                      Step {subStep.index + 1}
+                    </span>
+                    <span
+                      className={cn(
+                        "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide",
+                        subMeta.pillClassName,
+                      )}
+                    >
+                      {subMeta.label}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm font-medium leading-snug text-foreground">
+                    {subStep.title || "Untitled step"}
+                  </p>
+                  {subStep.description && (
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {subStep.description}
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
       </div>
     </li>
   );
 }
 
-function getStatusMeta(status: TodoStatus) {
+function getStatusMeta(status: TodoStatus, variant: ProgressItemKind) {
   switch (status) {
     case "completed":
       return {
@@ -515,68 +744,445 @@ function getStatusMeta(status: TodoStatus) {
         indicatorClassName:
           "border-transparent bg-emerald-500/10 text-emerald-500",
         containerClassName:
-          "border-emerald-400/30 bg-emerald-500/10 text-emerald-600",
+          variant === "step"
+            ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-600"
+            : "border-emerald-400/30 bg-emerald-500/5 text-emerald-600",
         pillClassName: "bg-emerald-500/15 text-emerald-600",
         connectorClassName: "bg-emerald-500/40",
-      };
+      } as const;
     case "in_progress":
       return {
         label: "In progress",
         icon: <Loader2 className="h-3.5 w-3.5 animate-spin text-primary" />,
         indicatorClassName: "border-primary/60 bg-primary/10 text-primary",
-        containerClassName: "border-primary/50 bg-primary/10",
+        containerClassName:
+          variant === "step"
+            ? "border-primary/50 bg-primary/10"
+            : "border-primary/40 bg-primary/5",
         pillClassName: "bg-primary/15 text-primary",
         connectorClassName: "bg-primary/40",
-      };
+      } as const;
     default:
       return {
         label: "Pending",
         icon: <Circle className="h-3.5 w-3.5 text-muted-foreground" />,
         indicatorClassName:
           "border-dashed border-muted-foreground/40 bg-background text-muted-foreground",
-        containerClassName: "border-border/60 bg-background/80",
+        containerClassName:
+          variant === "step"
+            ? "border-border/60 bg-background/80"
+            : "border-border/50 bg-background/70",
         pillClassName: "bg-muted/30 text-muted-foreground",
         connectorClassName: "bg-border/50",
-      };
+      } as const;
   }
 }
 
-function deriveSteps(todos: TodoItem[] | null): DerivedStep[] {
+function derivePlannerSteps(
+  planPayload: PlanPayload | null,
+  ongoing: boolean,
+  todoSessions: TodoSession[],
+): ProgressItem[] {
+  const planSteps = planPayload?.steps ?? [];
+  const steps: ProgressItem[] = planSteps.map((planStep, index) => {
+    const title =
+      pickFirstFilledText(planStep.title, planStep.content, planStep.name) ??
+      `Step ${index + 1}`;
+    const description =
+      pickFirstFilledText(planStep.description, planStep.detail, planStep.content) ??
+      "";
+    const rawStatus = typeof planStep.status === "string" ? planStep.status : undefined;
+    const status = normalizeStatus(rawStatus);
+    const rawContent =
+      typeof planStep.content === "string" ? planStep.content : undefined;
+
+    return {
+      index,
+      title,
+      description,
+      status,
+      rawContent,
+      rawStatus,
+      kind: "step" as const,
+    } satisfies ProgressItem;
+  });
+
+  const hasExplicitStatus = planSteps.some((step) =>
+    typeof step?.status === "string" && step.status?.trim(),
+  );
+
+  if (steps.length > 0) {
+    applyLoopStatuses(steps, {
+      hasExplicitStatus,
+      ongoing,
+      todoSessions,
+    });
+  }
+
+  return groupPlannerSteps(steps);
+}
+
+function applyLoopStatuses(
+  steps: ProgressItem[],
+  {
+    hasExplicitStatus,
+    ongoing,
+    todoSessions,
+  }: {
+    hasExplicitStatus: boolean;
+    ongoing: boolean;
+    todoSessions: TodoSession[];
+  },
+) {
+  const totalLoops = Math.ceil(steps.length / 2);
+  if (totalLoops === 0) {
+    return;
+  }
+
+  let completedLoops = 0;
+  let activeLoopIndex: number | null = null;
+
+  if (!hasExplicitStatus) {
+    if (!ongoing) {
+      completedLoops = totalLoops;
+    } else {
+      const sessionCount = Math.min(todoSessions.length, totalLoops);
+      if (sessionCount > 0) {
+        completedLoops = Math.max(0, sessionCount - 1);
+        activeLoopIndex = Math.min(sessionCount - 1, totalLoops - 1);
+      } else {
+        activeLoopIndex = totalLoops > 0 ? 0 : null;
+      }
+    }
+
+    for (let i = 0; i < steps.length; i += 1) {
+      const loopIndex = Math.floor(i / 2);
+      const step = steps[i];
+      if (!step) continue;
+
+      if (!ongoing) {
+        step.status = "completed";
+      } else if (loopIndex < completedLoops) {
+        step.status = "completed";
+      } else if (activeLoopIndex != null && loopIndex === activeLoopIndex) {
+        step.status = "in_progress";
+      } else {
+        step.status = "pending";
+      }
+    }
+  } else {
+    // Honor explicit planner-provided statuses but ensure completion when the run ends
+    if (!ongoing) {
+      for (const step of steps) {
+        step.status = "completed";
+      }
+    }
+  }
+}
+
+function deriveTodoSessions(messages: Message[]): TodoSession[] {
+  if (!messages.length) {
+    return [];
+  }
+
+  const sessions: TodoSession[] = [];
+  let lastSignature: string | null = null;
+
+  for (const message of messages) {
+    const todos = extractTodosFromMessage(message);
+    if (!todos?.length) {
+      continue;
+    }
+    const signature = createTodoSignature(todos);
+    if (!signature || signature === lastSignature) {
+      continue;
+    }
+    sessions.push({ signature, messageId: message.id });
+    lastSignature = signature;
+  }
+
+  return sessions;
+}
+
+function createTodoSignature(todos: TodoItem[]): string {
+  if (!todos.length) {
+    return "";
+  }
+
+  return todos
+    .map((todo) => {
+      const title = (todo.title ?? todo.content ?? "").trim().toLowerCase();
+      const description = (todo.description ?? todo.rawContent ?? "").trim().toLowerCase();
+      return `${title}::${description}`;
+    })
+    .join("||");
+}
+
+function groupPlannerSteps(steps: ProgressItem[]): ProgressItem[] {
+  if (!steps.length) {
+    return [];
+  }
+
+  const grouped: ProgressItem[] = [];
+
+  for (let i = 0; i < steps.length; i += 2) {
+    const first = steps[i];
+    if (!first) {
+      continue;
+    }
+
+    const second = steps[i + 1];
+    const subSteps: PlannerSubStep[] = [
+      {
+        index: first.index,
+        title: stripIndexPrefix(first.title),
+        description: first.description || undefined,
+        status: first.status,
+        rawContent: first.rawContent,
+      },
+    ];
+
+    if (second) {
+      subSteps.push({
+        index: second.index,
+        title: stripIndexPrefix(second.title),
+        description: second.description || undefined,
+        status: second.status,
+        rawContent: second.rawContent,
+      });
+    }
+
+    const status = mergePairStatus([first.status, second?.status]);
+    const title = buildPairTitle(subSteps);
+    const description = buildPairDescription(subSteps);
+
+    grouped.push({
+      index: grouped.length,
+      title,
+      description,
+      status,
+      kind: "step",
+      subSteps,
+    });
+  }
+
+  return grouped;
+}
+
+function mergePairStatus(statuses: Array<TodoStatus | undefined>): TodoStatus {
+  const filled = statuses.filter((status): status is TodoStatus => Boolean(status));
+  if (!filled.length) {
+    return "pending";
+  }
+  if (filled.every((status) => status === "completed")) {
+    return "completed";
+  }
+  if (filled.some((status) => status === "in_progress")) {
+    return "in_progress";
+  }
+  if (filled.some((status) => status === "completed")) {
+    return "in_progress";
+  }
+  return "pending";
+}
+
+function buildPairTitle(subSteps: PlannerSubStep[]): string {
+  if (!subSteps.length) {
+    return "Planner Steps";
+  }
+
+  const first = subSteps[0]!;
+  const last = subSteps[subSteps.length - 1]!;
+  const rangeLabel =
+    first.index === last.index
+      ? `Step ${first.index + 1}`
+      : `Steps ${first.index + 1}-${last.index + 1}`;
+
+  const focusTitles = subSteps
+    .map((step) => step.title)
+    .filter(Boolean)
+    .map((title) => truncateText(title, 60));
+
+  return focusTitles.length
+    ? `${rangeLabel}: ${focusTitles.join(" -> ")}`
+    : rangeLabel;
+}
+
+function buildPairDescription(subSteps: PlannerSubStep[]): string {
+  const detailParts = subSteps
+    .map((step) => {
+      const source = step.description ?? step.rawContent ?? "";
+      if (!source) {
+        return null;
+      }
+      return `Step ${step.index + 1}: ${truncateText(source, 140)}`;
+    })
+    .filter((part): part is string => Boolean(part));
+
+  return detailParts.join(" | ");
+}
+
+function stripIndexPrefix(value: string): string {
+  const trimmed = value.trim();
+  const match = /^(?:step\s+\d+[:.)-]|\d+[.)-])\s*(.*)$/i.exec(trimmed);
+  if (match && match[1]) {
+    const remainder = match[1].trim();
+    return remainder || trimmed;
+  }
+  return trimmed;
+}
+
+function deriveActivities(todos: TodoItem[] | null): ProgressItem[] {
   if (!todos?.length) {
     return [];
   }
 
   return todos.map((todo, index) => {
     const title =
-      pickFirstFilledText(todo.title, todo.content) ?? `Task ${index + 1}`;
-    const description = pickFirstFilledText(
-      todo.description,
-      todo.rawContent,
-    );
+      pickFirstFilledText(todo.title, todo.content) ?? `Activity ${index + 1}`;
+    const description =
+      pickFirstFilledText(todo.description, todo.rawContent) ?? "";
+    const rawContent = todo.rawContent ?? todo.content ?? undefined;
 
     return {
       index,
       title,
-      description: description ?? "",
+      description,
       status: todo.status ?? "pending",
-      rawContent: todo.rawContent ?? todo.content ?? undefined,
+      rawContent,
+      rawStatus: todo.rawStatus,
+      kind: "activity" as const,
     };
   });
 }
 
-function computeProgress(steps: DerivedStep[], ongoing: boolean) {
-  const total = steps.length;
-  const completed = steps.filter((step) => step.status === "completed").length;
+function computeProgress(items: ProgressItem[], ongoing: boolean) {
+  const total = items.length;
+  const completed = items.filter((item) => item.status === "completed").length;
   const percent = total === 0 ? 0 : (completed / total) * 100;
   const activeStep =
-    steps.find((step) => step.status === "in_progress") ??
-    (ongoing ? steps.find((step) => step.status === "pending") : undefined);
+    items.find((item) => item.status === "in_progress") ??
+    (ongoing ? items.find((item) => item.status === "pending") : undefined);
+
   return {
     completed,
     total,
     percent: Number.isFinite(percent) ? percent : 0,
     activeStep,
   };
+}
+
+const STATUS_ALIASES: Record<string, TodoStatus> = {
+  done: "completed",
+  finished: "completed",
+  complete: "completed",
+  completed: "completed",
+  success: "completed",
+  succeeded: "completed",
+  "in-progress": "in_progress",
+  inprogress: "in_progress",
+  progressing: "in_progress",
+  running: "in_progress",
+  active: "in_progress",
+  ongoing: "in_progress",
+  pending: "pending",
+  blocked: "pending",
+  waiting: "pending",
+  todo: "pending",
+};
+
+function normalizeStatus(rawStatus: string | undefined): TodoStatus {
+  if (!rawStatus) {
+    return "pending";
+  }
+
+  const key = rawStatus.trim().toLowerCase();
+  return STATUS_ALIASES[key] ?? "pending";
+}
+
+function parsePlanPayload(content: unknown): PlanPayload | null {
+  if (!content) {
+    return null;
+  }
+
+  if (typeof content === "string") {
+    const parsed = parseJSON<unknown>(content, undefined);
+    if (parsed !== undefined) {
+      return parsePlanPayload(parsed);
+    }
+
+    const trimmed = content.trim();
+    if (trimmed) {
+      return {
+        title: trimmed,
+        steps: [],
+      };
+    }
+    return null;
+  }
+
+  if (Array.isArray(content)) {
+    const text = content
+      .map((part) => {
+        if (typeof part === "string") {
+          return part;
+        }
+        if (part && typeof part === "object" && "text" in part && typeof part.text === "string") {
+          return part.text;
+        }
+        return "";
+      })
+      .find((value) => value && value.trim());
+
+    return {
+      title: text ? text.trim() : null,
+      steps: [],
+    };
+  }
+
+  if (typeof content === "object") {
+    const record = content as Record<string, unknown>;
+    const rawSteps = Array.isArray(record.steps) ? record.steps : [];
+
+    return {
+      title:
+        typeof record.title === "string" && record.title.trim()
+          ? record.title.trim()
+          : null,
+      steps: rawSteps
+        .map((step) => normalizePlanStep(step))
+        .filter((step): step is PlanStep => Boolean(step)),
+    };
+  }
+
+  return null;
+}
+
+function normalizePlanStep(step: unknown): PlanStep | null {
+  if (!step || typeof step !== "object") {
+    return null;
+  }
+
+  const record = step as Record<string, unknown>;
+
+  return {
+    title: getStringField(record, "title") ?? getStringField(record, "name"),
+    description:
+      getStringField(record, "description") ?? getStringField(record, "detail"),
+    status: getStringField(record, "status"),
+    content:
+      getStringField(record, "content") ?? getStringField(record, "task"),
+    detail: getStringField(record, "detail"),
+    name: getStringField(record, "name"),
+  };
+}
+
+function getStringField(
+  record: Record<string, unknown>,
+  key: string,
+): string | undefined {
+  const value = record[key];
+  return typeof value === "string" ? value : undefined;
 }
 
 
