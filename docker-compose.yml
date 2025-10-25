@@ -1,4 +1,24 @@
 services:
+  checkpoint-db:
+    image: postgres:15-alpine
+    container_name: deepresearch-postgres
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-checkpointing_db}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    ports:
+      - "${POSTGRES_HOST_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-checkpointing_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - morgana-network
+    restart: unless-stopped
+
   backend:
     build:
       context: .
@@ -7,6 +27,9 @@ services:
     # Remove the ports section to not expose to host
     env_file:
       - .env
+    depends_on:
+      checkpoint-db:
+        condition: service_healthy
     volumes:
       - ./conf.yaml:/app/conf.yaml:ro
     restart: unless-stopped
@@ -33,3 +56,6 @@ services:
 networks:
   morgana-network:
     driver: bridge
+
+volumes:
+  postgres_data:

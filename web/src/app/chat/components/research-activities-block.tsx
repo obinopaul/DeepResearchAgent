@@ -307,7 +307,7 @@ function PlanActivityOverview({
       open={expanded}
       onOpenChange={setExpanded}
       className={cn(
-        "overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-card/95 via-card/90 to-background/90 shadow-lg",
+        "flex max-h-[80vh] flex-col overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-card/95 via-card/90 to-background/90 shadow-lg",
         "supports-[backdrop-filter]:backdrop-blur-md supports-[backdrop-filter]:bg-card/75",
       )}
     >
@@ -379,8 +379,8 @@ function PlanActivityOverview({
           </div>
         </button>
       </CollapsibleTrigger>
-      <CollapsibleContent className="px-5 pb-5 pt-2">
-        <ScrollArea className="max-h-[72vh] pr-1">
+      <CollapsibleContent className="flex-1 overflow-hidden px-5 pb-5 pt-2">
+        <ScrollArea type="always" className="h-full pr-1">
           <div className="space-y-5 pb-3">
           {primaryCount > 0 ? (
             <div className="space-y-2">
@@ -567,8 +567,25 @@ function ActivitiesSection({
 }) {
   const [openState, setOpenState] = useState<Record<string, boolean>>({});
 
+  const getStateKey = useCallback((item: ProgressItem) => {
+    const title = item.title?.trim().toLowerCase();
+    if (title) {
+      return `activity-${title}`;
+    }
+    const content = item.rawContent?.trim().toLowerCase();
+    if (content) {
+      return `activity-${content}`;
+    }
+    return `activity-index-${item.index}`;
+  }, []);
+
   const handleOpenChange = useCallback((key: string, open: boolean) => {
-    setOpenState((prev) => ({ ...prev, [key]: open }));
+    setOpenState((prev) => {
+      if (prev[key] === open) {
+        return prev;
+      }
+      return { ...prev, [key]: open };
+    });
   }, []);
 
   if (!items.length) {
@@ -588,8 +605,9 @@ function ActivitiesSection({
       <div className="mt-3 px-2 pb-4">
         <ul className="space-y-3">
           {items.map((item) => {
+            const stateKey = getStateKey(item);
             const key = `activity-${item.index}-${item.title}`;
-            const isOpen = openState[key] ?? true;
+            const isOpen = openState[stateKey] ?? true;
             const statusMeta = getStatusMeta(item.status, item.kind);
             const showRawContent =
               typeof item.rawContent === "string" &&
@@ -598,7 +616,7 @@ function ActivitiesSection({
 
             return (
               <li key={key} className="list-none">
-                <Collapsible open={isOpen} onOpenChange={(open) => handleOpenChange(key, open)}>
+                <Collapsible open={isOpen} onOpenChange={(open) => handleOpenChange(stateKey, open)}>
                   <CollapsibleTrigger asChild>
                     <button
                       type="button"

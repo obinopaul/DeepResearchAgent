@@ -289,11 +289,13 @@ Then launch `langgraph dev` to capture traces locally and within LangSmith.
 LANGGRAPH_CHECKPOINT_SAVER=true
 LANGGRAPH_CHECKPOINT_DB_URL="mongodb://localhost:27017/"
 # LANGGRAPH_CHECKPOINT_DB_URL="postgresql://localhost:5432/postgres"
+# LANGGRAPH_CHECKPOINT_DB_URL="postgresql://postgres:postgres@localhost:${POSTGRES_HOST_PORT:-5433}/checkpointing_db"      # host -> dockerized Postgres
+# LANGGRAPH_CHECKPOINT_DB_URL="postgresql://postgres:postgres@checkpoint-db:5432/checkpointing_db"  # backend container -> Postgres container
 ```
 
-3. Default database: `checkpoint_db`. Collections: `checkpoint_writes_aio`, `checkpoints_aio`, `chat_streams`.
-4. For Postgres, prefer `langgraph-checkpoint-postgres==2.0.21` until [issue #5557](https://github.com/langchain-ai/langgraph/issues/5557) is resolved (`TypeError: Object of type HumanMessage is not JSON serializable`).
-5. Psycopg typically requires `libpq`. Install the binary extra if you do not have system libraries available:
+1. Default database: `checkpoint_db`. Collections: `checkpoint_writes_aio`, `checkpoints_aio`, `chat_streams`.
+1. For Postgres, prefer `langgraph-checkpoint-postgres==2.0.21` until [issue #5557](https://github.com/langchain-ai/langgraph/issues/5557) is resolved (`TypeError: Object of type HumanMessage is not JSON serializable`).
+1. Psycopg typically requires `libpq`. Install the binary extra if you do not have system libraries available:
 
 ```bash
 pip install psycopg[binary]
@@ -317,6 +319,9 @@ The repository also includes a compose file to launch backend and frontend toget
 docker compose build
 docker compose up
 ```
+
+- `checkpoint-db` runs Postgres 15 with persistent storage and a health check. Override `POSTGRES_USER`, `POSTGRES_PASSWORD`, `POSTGRES_DB`, and `POSTGRES_HOST_PORT` in `.env` if you need custom credentials or port bindings before running `docker compose up`.
+- When you run the backend on the host (e.g., `uv run server.py`), connect via `postgresql://<user>:<password>@localhost:${POSTGRES_HOST_PORT:-5433}/<db>`. When the backend runs inside the `backend` container, use `postgresql://<user>:<password>@checkpoint-db:5432/<db>` so it resolves over the compose network.
 
 Add authentication and harden MCP/Python REPL access when deploying to production.
 
