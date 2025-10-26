@@ -217,18 +217,12 @@ export function ResearchBlock({
             forceMount
             hidden={activeTab !== "activities"}
           >
-            <ScrollContainer
-              className="h-full"
-              scrollShadowColor="var(--card)"
-              autoScrollToBottom={!hasReport || reportStreaming}
-            >
-              {researchId && (
-                <ResearchActivitiesBlock
-                  className="mt-4"
-                  researchId={researchId}
-                />
-              )}
-            </ScrollContainer>
+            {researchId && (
+              <ResearchActivitiesBlock
+                className="mt-4 h-full"
+                researchId={researchId}
+              />
+            )}
           </TabsContent>
           <TabsContent
             className="h-full min-h-0 flex-grow px-8"

@@ -12,6 +12,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import SyntaxHighlighter from "react-syntax-highlighter";
 import { docco } from "react-syntax-highlighter/dist/esm/styles/hljs";
 import { dark } from "react-syntax-highlighter/dist/esm/styles/prism";
+import { Virtuoso } from "react-virtuoso";
 import { useShallow } from "zustand/react/shallow";
 
 import { FavIcon } from "~/components/deer-flow/fav-icon";
@@ -45,6 +46,25 @@ const MAX_IMAGE_ANIMATIONS = 4;
 const MAX_DOCUMENT_ANIMATIONS = 4;
 const MAX_ACTIVITY_PREVIEW_CHARS = 160;
 
+const VirtualizedList = React.forwardRef<HTMLDivElement, React.ComponentPropsWithoutRef<"div">>(
+  ({ className, ...props }, ref) => (
+    <div
+      ref={ref}
+      className={cn("flex flex-col py-4", className)}
+      {...props}
+    />
+  ),
+);
+VirtualizedList.displayName = "VirtualizedList";
+
+const EmptyFooter = () => null;
+
+const LoadingFooter = () => (
+  <div className="flex w-full justify-center py-8">
+    <LoadingAnimation className="mx-4" />
+  </div>
+);
+
 export function ResearchActivitiesBlock({
   className,
   researchId,
@@ -65,8 +85,22 @@ export function ResearchActivitiesBlock({
         .filter((message): message is Message => Boolean(message)),
     ),
   );
+  const [isAtBottom, setIsAtBottom] = useState(true);
+
+  useEffect(() => {
+    setIsAtBottom(true);
+  }, [researchId]);
+
+  const virtualComponents = useMemo(
+    () => ({
+      List: VirtualizedList,
+      Footer: ongoing ? LoadingFooter : EmptyFooter,
+    }),
+    [ongoing],
+  );
+
   return (
-    <div className={cn("flex flex-col gap-4", className)}>
+    <div className={cn("flex h-full min-h-0 flex-col gap-4", className)}>
       {planMessageId && (
         <div className="sticky top-2 z-20">
           <PlanActivityOverview
@@ -77,16 +111,27 @@ export function ResearchActivitiesBlock({
           />
         </div>
       )}
-      <div className="relative">
-        <ul className="flex flex-col py-4">
-          {timelineActivityIds.map((activityId, i) => {
-            const shouldAnimate = i < MAX_ANIMATED_ACTIVITY_ITEMS;
+      <div className="relative flex-1">
+        <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10 bg-gradient-to-t from-transparent to-[var(--card)]" />
+        <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-10 bg-gradient-to-b from-transparent to-[var(--card)]" />
+        <Virtuoso
+          style={{ height: "100%" }}
+          data={timelineActivityIds}
+          computeItemKey={(_, activityId) => activityId}
+          atBottomStateChange={setIsAtBottom}
+          followOutput={isAtBottom ? "smooth" : false}
+          increaseViewportBy={{ top: 400, bottom: 600 }}
+          components={virtualComponents}
+          itemContent={(index, activityId) => {
+            const shouldAnimate = index < MAX_ANIMATED_ACTIVITY_ITEMS;
             const animationDelay = shouldAnimate
-              ? Math.min(i * ACTIVITY_ANIMATION_DELAY, 0.5)
+              ? Math.min(index * ACTIVITY_ANIMATION_DELAY, 0.5)
               : 0;
+            const isLast = index === timelineActivityIds.length - 1;
+
             return (
-              <motion.li
-                key={activityId}
+              <motion.div
+                className="mt-10"
                 style={{
                   transition: shouldAnimate ? "all 0.3s ease-out" : "none",
                 }}
@@ -104,12 +149,11 @@ export function ResearchActivitiesBlock({
               >
                 <ActivityMessage messageId={activityId} />
                 <ActivityListItem messageId={activityId} />
-                {i !== timelineActivityIds.length - 1 && <hr className="my-8" />}
-              </motion.li>
+                {!isLast && <hr className="my-8" />}
+              </motion.div>
             );
-          })}
-        </ul>
-        {ongoing && <LoadingAnimation className="mx-4 my-12" />}
+          }}
+        />
       </div>
     </div>
   );
@@ -222,7 +266,10 @@ function PlanActivityOverview({
 
   const hasSteps = plannerSteps.length > 0;
   const hasActivities = activities.length > 0;
-  const primaryItems = hasSteps ? plannerSteps : [];
+  const primaryItems = useMemo(
+    () => (hasSteps ? plannerSteps : []),
+    [hasSteps, plannerSteps],
+  );
   const primaryCount = primaryItems.length;
 
   const stepSummary = useMemo(
@@ -1048,7 +1095,7 @@ function buildPairDescription(subSteps: PlannerSubStep[]): string {
 function stripIndexPrefix(value: string): string {
   const trimmed = value.trim();
   const match = /^(?:step\s+\d+[:.)-]|\d+[.)-])\s*(.*)$/i.exec(trimmed);
-  if (match && match[1]) {
+  if (match?.[1]) {
     const remainder = match[1].trim();
     return remainder || trimmed;
   }
@@ -1155,7 +1202,7 @@ function parsePlanPayload(content: unknown): PlanPayload | null {
         }
         return "";
       })
-      .find((value) => value && value.trim());
+      .find((value) => value?.trim());
 
     return {
       title: text ? text.trim() : null,

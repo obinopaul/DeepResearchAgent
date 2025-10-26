@@ -13,15 +13,13 @@ import {
 } from "lucide-react";
 import { useTranslations } from "next-intl";
 import React, { useCallback, useMemo, useRef, useState } from "react";
+import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
 import { LoadingAnimation } from "~/components/deer-flow/loading-animation";
 import { Markdown } from "~/components/deer-flow/markdown";
 import { RainbowText } from "~/components/deer-flow/rainbow-text";
 import { RollingText } from "~/components/deer-flow/rolling-text";
-import {
-  ScrollContainer,
-  type ScrollContainerRef,
-} from "~/components/deer-flow/scroll-container";
+import { ScrollContainer } from "~/components/deer-flow/scroll-container";
 import { Tooltip } from "~/components/deer-flow/tooltip";
 import { Button } from "~/components/ui/button";
 import {
@@ -63,7 +61,6 @@ export function MessageListView({
     options?: { interruptFeedback?: string },
   ) => void;
 }) {
-  const scrollContainerRef = useRef<ScrollContainerRef>(null);
   const messageIds = useMessageIds();
   const interruptMessage = useLastInterruptMessage();
   const waitingForFeedbackMessageId = useLastFeedbackMessageId();
@@ -74,31 +71,44 @@ export function MessageListView({
   const ongoingResearchIsOpen = useStore(
     (state) => state.ongoingResearchId === state.openResearchId,
   );
+  const virtuosoRef = useRef<VirtuosoHandle>(null);
+  const [isAtBottom, setIsAtBottom] = useState(true);
+
+  const footerComponent = useMemo(() => {
+    const shouldShowLoader = responding && (noOngoingResearch || !ongoingResearchIsOpen);
+    const Footer = () => (
+      <div className="flex w-full justify-start">
+        {shouldShowLoader ? <LoadingAnimation className="ml-4" /> : <div className="h-8 w-full" />}
+      </div>
+    );
+    return Footer;
+  }, [responding, noOngoingResearch, ongoingResearchIsOpen]);
 
   const handleToggleResearch = useCallback(() => {
-    // Fix the issue where auto-scrolling to the bottom
-    // occasionally fails when toggling research.
-    const timer = setTimeout(() => {
-      if (scrollContainerRef.current) {
-        scrollContainerRef.current.scrollToBottom();
-      }
-    }, 500);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, []);
+    requestAnimationFrame(() => {
+      virtuosoRef.current?.scrollToIndex({
+        index: Math.max(messageIds.length - 1, 0),
+        align: "end",
+        behavior: "smooth",
+      });
+    });
+  }, [messageIds.length]);
 
   return (
-    <ScrollContainer
-      className={cn("flex h-full w-full flex-col overflow-hidden", className)}
-      scrollShadowColor="var(--app-background)"
-      autoScrollToBottom
-      ref={scrollContainerRef}
-    >
-      <ul className="flex flex-col">
-        {messageIds.map((messageId) => (
+    <div className={cn("relative flex h-full w-full", className)}>
+      <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10 bg-gradient-to-t from-transparent to-[var(--app-background)]" />
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-10 bg-gradient-to-b from-transparent to-[var(--app-background)]" />
+      <Virtuoso
+        ref={virtuosoRef}
+        style={{ height: "100%", width: "100%" }}
+        data={messageIds}
+        computeItemKey={(_, messageId) => messageId}
+        followOutput={isAtBottom ? "smooth" : false}
+        atBottomStateChange={setIsAtBottom}
+        increaseViewportBy={{ top: 400, bottom: 600 }}
+        components={{ Footer: footerComponent }}
+        itemContent={(_, messageId) => (
           <MessageListItem
-            key={messageId}
             messageId={messageId}
             waitForFeedback={waitingForFeedbackMessageId === messageId}
             interruptMessage={interruptMessage}
@@ -106,18 +116,13 @@ export function MessageListView({
             onSendMessage={onSendMessage}
             onToggleResearch={handleToggleResearch}
           />
-        ))}
-        <div className="flex h-8 w-full shrink-0"></div>
-      </ul>
-      {responding && (noOngoingResearch || !ongoingResearchIsOpen) && (
-        <LoadingAnimation className="ml-4" />
-      )}
-    </ScrollContainer>
+        )}
+      />
+    </div>
   );
 }
 
 function MessageListItem({
-  className,
   messageId,
   waitForFeedback,
   interruptMessage,
@@ -125,7 +130,6 @@ function MessageListItem({
   onSendMessage,
   onToggleResearch,
 }: {
-  className?: string;
   messageId: string;
   waitForFeedback?: boolean;
   onFeedback?: (feedback: { option: Option }) => void;
@@ -188,7 +192,6 @@ function MessageListItem({
             className={cn(
               "flex w-full px-4",
               message.role === "user" && "justify-end",
-              className,
             )}
           >
             <MessageBubble message={message}>
@@ -208,7 +211,7 @@ function MessageListItem({
       }
       if (content) {
         return (
-          <motion.li
+          <motion.div
             className="mt-10"
             key={messageId}
             initial={{ opacity: 0, y: 24 }}
@@ -220,7 +223,7 @@ function MessageListItem({
             }}
           >
             {content}
-          </motion.li>
+          </motion.div>
         );
       }
     }
