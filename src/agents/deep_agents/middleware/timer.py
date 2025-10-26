@@ -35,7 +35,7 @@ class ResearchTimerMiddleware(AgentMiddleware[AgentState, Any]):
         )
         self.final_message = (
             final_message
-            or "The research timer has elapsed. Deliver a concise final detailed and extensive summary with the most important insights and next steps."
+            or "The research timer has elapsed. Deliver a concise final summary that is detailed and extensive, highlighting the most important insights and next steps."
         )
 
         self._start_time: float | None = None

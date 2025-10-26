@@ -29,12 +29,16 @@ _ENV_TOKEN_LIMIT_KEYS: tuple[str, ...] = (
     "DEEP_AGENT_MODEL_TOKEN_LIMIT",
     "DEEPAGENT_MODEL_TOKEN_LIMIT",
     "DEEP_AGENT_CONTEXT_WINDOW",
+    "DEEPAGENT_MODEL__TOKEN_LIMIT",
+    "DEEPAGENT_MODEL__token_limit",
 )
 _ENV_SUMMARY_BUDGET_KEYS: tuple[str, ...] = (
     "DEEP_AGENT_SUMMARY_BUDGET",
     "DEEP_AGENT_MAX_TOKENS",
     "DEEP_AGENT_MAXIMUM_TOKENS",
     "DEEPAGENT_MODEL_MAX_TOKENS",
+    "DEEPAGENT_MODEL__MAX_TOKENS",
+    "DEEPAGENT_MODEL__max_tokens",
 )
 
 
@@ -61,6 +65,26 @@ def _read_int_from_env(keys: Sequence[str]) -> int | None:
     return None
 
 
+def _infer_llm_type_from_name(model_name: str) -> str | None:
+    """Infer the configured LLM type from a raw model identifier."""
+    if not model_name:
+        return None
+
+    if model_name in AGENT_LLM_MAP:
+        return AGENT_LLM_MAP[model_name]
+
+    if "deepseek" in model_name:
+        return "deepagent_deepseek"
+
+    if model_name.startswith("gpt") or model_name.startswith("o1"):
+        return "deepagent_openai"
+
+    if "claude" in model_name or model_name.startswith("anthropic"):
+        return "deepagent"
+
+    return None
+
+
 def resolve_token_limit(model_like: Any) -> int:
     """Resolve the effective context window for the provided model."""
     env_override = _read_int_from_env(_ENV_TOKEN_LIMIT_KEYS)
@@ -69,10 +93,10 @@ def resolve_token_limit(model_like: Any) -> int:
 
     if isinstance(model_like, BaseChatModel):
         attr_candidates = (
+            "context_window",
+            "max_context_tokens",
             "max_input_tokens",
             "max_total_tokens",
-            "max_context_tokens",
-            "max_tokens",
         )
         for attr in attr_candidates:
             value = getattr(model_like, attr, None)
@@ -83,14 +107,22 @@ def resolve_token_limit(model_like: Any) -> int:
             maybe_kwargs = getattr(model_like, attr, None)
             if isinstance(maybe_kwargs, dict):
                 for key in (
-                    "max_tokens",
+                    "context_window",
+                    "max_context_tokens",
                     "max_input_tokens",
                     "max_total_tokens",
-                    "max_output_tokens",
                 ):
                     candidate = maybe_kwargs.get(key)
                     if isinstance(candidate, int) and candidate > 0:
                         return candidate
+
+        model_identifier = (
+            getattr(model_like, "model_name", None)
+            or getattr(model_like, "model", None)
+            or getattr(model_like, "deployment_name", None)
+        )
+        if isinstance(model_identifier, str) and model_identifier.strip():
+            return resolve_token_limit(model_identifier)
 
     if isinstance(model_like, str):
         normalized = model_like.strip().lower()
@@ -105,7 +137,11 @@ def resolve_token_limit(model_like: Any) -> int:
                 llm_type = AGENT_LLM_MAP[alias]
                 return get_llm_token_limit_by_type(llm_type)
 
-        return get_llm_token_limit_by_type(normalized)
+        inferred_type = _infer_llm_type_from_name(normalized)
+        if inferred_type is not None:
+            return get_llm_token_limit_by_type(inferred_type)
+
+        return get_llm_token_limit_by_type(DEEPAGENT_LLM_TYPE)
 
     return get_llm_token_limit_by_type(DEEPAGENT_LLM_TYPE)
 
@@ -115,12 +151,17 @@ def compute_summary_budget(token_limit: int, requested: int | None = None) -> in
     if token_limit <= 0:
         return 4000
 
-    if requested is not None:
-        capped = min(requested, max(token_limit - 8000, 4000))
-        return max(capped, 2000)
+    safety_margin = max(int(token_limit * 0.1), 6000)
+    max_threshold = token_limit - safety_margin
+    if max_threshold <= 0:
+        max_threshold = max(token_limit // 2, 2000)
+    else:
+        max_threshold = max(max_threshold, token_limit // 2, 2000)
 
-    budget = max(token_limit // 20, 4000)
-    return min(budget, max(token_limit - 8000, 4000))
+    if requested is not None:
+        return max(min(requested, max_threshold), 2000)
+
+    return max_threshold
 
 
 def determine_messages_to_keep(token_limit: int) -> int:

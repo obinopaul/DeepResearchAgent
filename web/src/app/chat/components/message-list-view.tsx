@@ -12,7 +12,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { useTranslations } from "next-intl";
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Virtuoso, type VirtuosoHandle } from "react-virtuoso";
 
 import { LoadingAnimation } from "~/components/deer-flow/loading-animation";
@@ -71,8 +71,10 @@ export function MessageListView({
   const ongoingResearchIsOpen = useStore(
     (state) => state.ongoingResearchId === state.openResearchId,
   );
+  const containerRef = useRef<HTMLDivElement>(null);
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const [viewportReady, setViewportReady] = useState(false);
 
   const footerComponent = useMemo(() => {
     const shouldShowLoader = responding && (noOngoingResearch || !ongoingResearchIsOpen);
@@ -94,30 +96,60 @@ export function MessageListView({
     });
   }, [messageIds.length]);
 
+  useLayoutEffect(() => {
+    const node = containerRef.current;
+    if (!node) {
+      return;
+    }
+    if (typeof ResizeObserver === "undefined") {
+      setViewportReady(true);
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const entry = entries[0];
+      if (!entry) {
+        return;
+      }
+      const { width, height } = entry.contentRect;
+      const hasViewport = width > 0 && height > 0;
+      setViewportReady((prev) => (prev === hasViewport ? prev : hasViewport));
+    });
+    observer.observe(node);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
   return (
-    <div className={cn("relative flex h-full w-full", className)}>
+    <div ref={containerRef} className={cn("relative flex h-full w-full min-h-0 flex-1", className)}>
       <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-10 bg-gradient-to-t from-transparent to-[var(--app-background)]" />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-10 bg-gradient-to-b from-transparent to-[var(--app-background)]" />
-      <Virtuoso
-        ref={virtuosoRef}
-        style={{ height: "100%", width: "100%" }}
-        data={messageIds}
-        computeItemKey={(_, messageId) => messageId}
-        followOutput={isAtBottom ? "smooth" : false}
-        atBottomStateChange={setIsAtBottom}
-        increaseViewportBy={{ top: 400, bottom: 600 }}
-        components={{ Footer: footerComponent }}
-        itemContent={(_, messageId) => (
-          <MessageListItem
-            messageId={messageId}
-            waitForFeedback={waitingForFeedbackMessageId === messageId}
-            interruptMessage={interruptMessage}
-            onFeedback={onFeedback}
-            onSendMessage={onSendMessage}
-            onToggleResearch={handleToggleResearch}
-          />
-        )}
-      />
+      {viewportReady ? (
+        <Virtuoso
+          ref={virtuosoRef}
+          style={{ height: "100%", width: "100%" }}
+          data={messageIds}
+          computeItemKey={(_, messageId) => messageId}
+          followOutput={isAtBottom ? "smooth" : false}
+          atBottomStateChange={setIsAtBottom}
+          increaseViewportBy={{ top: 400, bottom: 600 }}
+          components={{ Footer: footerComponent }}
+          itemContent={(_, messageId) => (
+            <MessageListItem
+              messageId={messageId}
+              waitForFeedback={waitingForFeedbackMessageId === messageId}
+              interruptMessage={interruptMessage}
+              onFeedback={onFeedback}
+              onSendMessage={onSendMessage}
+              onToggleResearch={handleToggleResearch}
+            />
+          )}
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center">
+          <LoadingOutlined className="text-lg text-muted-foreground" />
+        </div>
+      )}
     </div>
   );
 }

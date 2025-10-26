@@ -571,7 +571,9 @@ def _ls_tool_generator(custom_description: str | None = None, *, long_term_memor
     if long_term_memory:
 
         @tool(description=tool_description)
-        def ls(runtime: Annotated[ToolRuntime[None, FilesystemState], InjectedToolArg()], path: str | None = None) -> list[str]:
+        def ls(runtime: Annotated[ToolRuntime, InjectedToolArg()] | None = None, path: str | None = None) -> list[str]:
+            if runtime is None:
+                raise ValueError("Runtime injection missing for ls tool")
             files = _get_filenames_from_state(runtime.state)
             # Add filenames from longterm memory
             store = _get_store(runtime)
@@ -583,7 +585,9 @@ def _ls_tool_generator(custom_description: str | None = None, *, long_term_memor
     else:
 
         @tool(description=tool_description)
-        def ls(runtime: Annotated[ToolRuntime[None, FilesystemState], InjectedToolArg()], path: str | None = None) -> list[str]:
+        def ls(runtime: Annotated[ToolRuntime, InjectedToolArg()] | None = None, path: str | None = None) -> list[str]:
+            if runtime is None:
+                raise ValueError("Runtime injection missing for ls tool")
             files = _get_filenames_from_state(runtime.state)
             return _filter_files_by_path(files, path)
 
@@ -634,10 +638,12 @@ def _read_file_tool_generator(custom_description: str | None = None, *, long_ter
         @tool(description=tool_description)
         def read_file(
             file_path: str,
-            runtime: Annotated[ToolRuntime[None, FilesystemState], InjectedToolArg()],
+            runtime: Annotated[ToolRuntime, InjectedToolArg()] | None = None,
             offset: int = DEFAULT_READ_OFFSET,
             limit: int = DEFAULT_READ_LIMIT,
         ) -> str:
+            if runtime is None:
+                raise ValueError("Runtime injection missing for read_file tool")
             file_path = _validate_path(file_path)
             if _has_memories_prefix(file_path):
                 stripped_file_path = _strip_memories_prefix(file_path)
@@ -659,10 +665,12 @@ def _read_file_tool_generator(custom_description: str | None = None, *, long_ter
         @tool(description=tool_description)
         def read_file(
             file_path: str,
-            runtime: Annotated[ToolRuntime[None, FilesystemState], InjectedToolArg()],
+            runtime: Annotated[ToolRuntime, InjectedToolArg()] | None = None,
             offset: int = DEFAULT_READ_OFFSET,
             limit: int = DEFAULT_READ_LIMIT,
         ) -> str:
+            if runtime is None:
+                raise ValueError("Runtime injection missing for read_file tool")
             file_path = _validate_path(file_path)
             try:
                 file_data = _get_file_data_from_state(runtime.state, file_path)

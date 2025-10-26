@@ -1,6 +1,13 @@
 import pytest
-from langchain.agents import create_agent
-from langchain.tools import ToolRuntime
+
+try:
+    from langchain.agents import create_agent
+except Exception as exc:  # noqa: BLE001 - broad to catch pydantic evaluation errors on py3.14
+    create_agent = None  # type: ignore[assignment]
+    _LANGCHAIN_IMPORT_ERROR = exc
+else:
+    _LANGCHAIN_IMPORT_ERROR = None
+from src.agents.agents.tools.tool_node import ToolRuntime
 from langchain_core.messages import (
     AIMessage,
     HumanMessage,
@@ -10,21 +17,28 @@ from langchain_core.messages import (
 )
 from langgraph.graph.message import add_messages
 
-from deepagents.middleware.filesystem import (
+from src.agents.deep_agents.middleware.filesystem import (
     FILESYSTEM_SYSTEM_PROMPT,
     FILESYSTEM_SYSTEM_PROMPT_LONGTERM_SUPPLEMENT,
     FileData,
     FilesystemMiddleware,
     FilesystemState,
 )
-from deepagents.middleware.patch_tool_calls import PatchToolCallsMiddleware
-from deepagents.middleware.subagents import DEFAULT_GENERAL_PURPOSE_DESCRIPTION, TASK_SYSTEM_PROMPT, TASK_TOOL_DESCRIPTION, SubAgentMiddleware
+from src.agents.deep_agents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+from src.agents.deep_agents.middleware.subagents import (
+    DEFAULT_GENERAL_PURPOSE_DESCRIPTION,
+    TASK_SYSTEM_PROMPT,
+    TASK_TOOL_DESCRIPTION,
+    SubAgentMiddleware,
+)
 from src.agents.agents.utils.runtime import Runtime
 from src.agents.deep_agents.middleware.timer import ResearchTimerMiddleware
 
 
 class TestAddMiddleware:
     def test_filesystem_middleware(self):
+        if create_agent is None:
+            pytest.skip(f"create_agent unavailable: {_LANGCHAIN_IMPORT_ERROR}")
         middleware = [FilesystemMiddleware()]
         agent = create_agent(model="claude-sonnet-4-20250514", middleware=middleware, tools=[])
         assert "files" in agent.stream_channels
@@ -35,11 +49,15 @@ class TestAddMiddleware:
         assert "edit_file" in agent_tools
 
     def test_subagent_middleware(self):
+        if create_agent is None:
+            pytest.skip(f"create_agent unavailable: {_LANGCHAIN_IMPORT_ERROR}")
         middleware = [SubAgentMiddleware(default_tools=[], subagents=[], default_model="claude-sonnet-4-20250514")]
         agent = create_agent(model="claude-sonnet-4-20250514", middleware=middleware, tools=[])
         assert "task" in agent.nodes["tools"].bound._tools_by_name.keys()
 
     def test_multiple_middleware(self):
+        if create_agent is None:
+            pytest.skip(f"create_agent unavailable: {_LANGCHAIN_IMPORT_ERROR}")
         middleware = [FilesystemMiddleware(), SubAgentMiddleware(default_tools=[], subagents=[], default_model="claude-sonnet-4-20250514")]
         agent = create_agent(model="claude-sonnet-4-20250514", middleware=middleware, tools=[])
         assert "files" in agent.stream_channels
@@ -149,6 +167,18 @@ class TestFilesystemMiddleware:
         )
         assert "/pokemon/test2.txt" in result
         assert "/pokemon/charmander.txt" in result
+
+    def test_ls_runtime_excluded_from_schema(self):
+        middleware = FilesystemMiddleware(long_term_memory=False)
+        ls_tool = next(tool for tool in middleware.tools if tool.name == "ls")
+        schema = ls_tool.args_schema.schema()
+        assert "runtime" not in schema.get("required", [])
+
+    def test_read_file_runtime_excluded_from_schema(self):
+        middleware = FilesystemMiddleware(long_term_memory=False)
+        read_tool = next(tool for tool in middleware.tools if tool.name == "read_file")
+        schema = read_tool.args_schema.schema()
+        assert "runtime" not in schema.get("required", [])
 
 
 @pytest.mark.requires("langchain_openai")
