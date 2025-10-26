@@ -1,3 +1,6 @@
+import sys
+from typing import Any
+
 import pytest
 
 try:
@@ -10,12 +13,15 @@ else:
 from src.agents.agents.tools.tool_node import ToolRuntime
 from langchain_core.messages import (
     AIMessage,
+    BaseMessage,
     HumanMessage,
     SystemMessage,
     ToolCall,
     ToolMessage,
 )
 from langgraph.graph.message import add_messages
+from langgraph.store.memory import InMemoryStore
+from langgraph.types import Command
 
 from src.agents.deep_agents.middleware.filesystem import (
     FILESYSTEM_SYSTEM_PROMPT,
@@ -179,6 +185,214 @@ class TestFilesystemMiddleware:
         read_tool = next(tool for tool in middleware.tools if tool.name == "read_file")
         schema = read_tool.args_schema.schema()
         assert "runtime" not in schema.get("required", [])
+
+    def test_ls_handles_missing_runtime(self):
+        middleware = FilesystemMiddleware(long_term_memory=False)
+        ls_tool = next(tool for tool in middleware.tools if tool.name == "ls")
+        assert ls_tool.invoke({"runtime": None}) == "Filesystem runtime unavailable"
+
+    def test_read_file_handles_missing_runtime(self):
+        middleware = FilesystemMiddleware(long_term_memory=False)
+        read_tool = next(tool for tool in middleware.tools if tool.name == "read_file")
+        result = read_tool.invoke({"file_path": "test.txt", "runtime": None})
+        assert result == "Error: Filesystem runtime unavailable"
+
+
+def _make_state(*, files: dict[str, FileData] | None = None) -> FilesystemState:
+    return FilesystemState(messages=[], files=files or {})
+
+
+def _make_runtime(
+    state: FilesystemState,
+    *,
+    store: InMemoryStore | None = None,
+    tool_call_id: str | None = "test-call",
+) -> ToolRuntime:
+    return ToolRuntime(
+        state=state,
+        context=None,
+        config={},
+        stream_writer=lambda _chunk: None,
+        tool_call_id=tool_call_id,
+        store=store,
+    )
+
+
+def _apply_command(state: FilesystemState, command: Command) -> None:
+    update = command.update
+    if update is None:
+        return
+    files_update = update.get("files")
+    if files_update:
+        files = dict(state.get("files", {}))
+        files.update(files_update)
+        state["files"] = files
+    messages_update = update.get("messages")
+    if messages_update:
+        state_messages = list(state.get("messages", []))
+        state_messages.extend(messages_update)
+        state["messages"] = state_messages
+
+
+def _file_data(content: str) -> FileData:
+    return FileData(
+        content=content.split("\n"),
+        created_at="2024-01-01T00:00:00+00:00",
+        modified_at="2024-01-01T00:00:00+00:00",
+    )
+
+
+def _ensure_tool_schema(tool: BaseTool) -> None:
+    args_schema = getattr(tool, "args_schema", None)
+    rebuild = getattr(args_schema, "model_rebuild", None)
+    if callable(rebuild):
+        module_names = {
+            name for name in (tool.__module__, getattr(args_schema, "__module__", None), "src.agents.agents.middleware.types") if name
+        }
+        namespace: dict[str, Any] = {}
+        for module_name in module_names:
+            module = sys.modules.get(module_name)
+            if module is not None:
+                namespace.update(vars(module))
+        namespace.setdefault("BaseMessage", BaseMessage)
+        namespace.setdefault("add_messages", add_messages)
+        rebuild(_types_namespace=namespace)
+
+
+class TestFilesystemToolExecution:
+    def test_short_term_full_tool_cycle(self) -> None:
+        middleware = FilesystemMiddleware(long_term_memory=False)
+        tools = {tool.name: tool for tool in middleware.tools}
+        for tool in tools.values():
+            _ensure_tool_schema(tool)
+        state = _make_state()
+
+        write_result = tools["write_file"].invoke(
+            {
+                "file_path": "/notes.txt",
+                "content": "First line",
+                "runtime": _make_runtime(state, tool_call_id="write-1"),
+            }
+        )
+        assert isinstance(write_result, Command)
+        _apply_command(state, write_result)
+
+        ls_output = tools["ls"].invoke({"runtime": _make_runtime(state)})
+        assert isinstance(ls_output, list)
+        assert "/notes.txt" in ls_output
+
+        read_output = tools["read_file"].invoke({"file_path": "/notes.txt", "runtime": _make_runtime(state)})
+        assert "First line" in read_output
+
+        edit_result = tools["edit_file"].invoke(
+            {
+                "file_path": "/notes.txt",
+                "old_string": "First line",
+                "new_string": "Updated line",
+                "runtime": _make_runtime(state, tool_call_id="edit-1"),
+            }
+        )
+        assert isinstance(edit_result, Command)
+        _apply_command(state, edit_result)
+
+        read_after_edit = tools["read_file"].invoke({"file_path": "/notes.txt", "runtime": _make_runtime(state)})
+        assert "Updated line" in read_after_edit
+
+    def test_long_term_tool_cycle(self) -> None:
+        middleware = FilesystemMiddleware(long_term_memory=True)
+        tools = {tool.name: tool for tool in middleware.tools}
+        for tool in tools.values():
+            _ensure_tool_schema(tool)
+        state = _make_state(files={"/local.txt": _file_data("Local entry")})
+        store = InMemoryStore()
+        store.put(("filesystem",), "/archive.txt", {
+            "content": ["Stored"],
+            "created_at": "2024-01-01T00:00:00+00:00",
+            "modified_at": "2024-01-01T00:00:00+00:00",
+        })
+
+        ls_output = tools["ls"].invoke({"runtime": _make_runtime(state, store=store)})
+        assert isinstance(ls_output, list)
+        assert "/local.txt" in ls_output
+        assert "/memories/archive.txt" in ls_output
+
+        read_store = tools["read_file"].invoke(
+            {
+                "file_path": "/memories/archive.txt",
+                "runtime": _make_runtime(state, store=store),
+            }
+        )
+        assert "Stored" in read_store
+
+        write_result = tools["write_file"].invoke(
+            {
+                "file_path": "/memories/journal.txt",
+                "content": "Journal entry",
+                "runtime": _make_runtime(state, store=store, tool_call_id="write-long"),
+            }
+        )
+        assert isinstance(write_result, str)
+        journal_item = store.get(("filesystem",), "/journal.txt")
+        assert journal_item is not None
+        assert "Journal entry" in "\n".join(journal_item.value["content"])
+
+        store.put(("filesystem",), "/journal.txt", {
+            "content": ["Journal entry"],
+            "created_at": "2024-01-01T00:00:00+00:00",
+            "modified_at": "2024-01-01T00:00:00+00:00",
+        })
+        edit_output = tools["edit_file"].invoke(
+            {
+                "file_path": "/memories/journal.txt",
+                "old_string": "Journal entry",
+                "new_string": "Updated journal",
+                "runtime": _make_runtime(state, store=store, tool_call_id="edit-long"),
+            }
+        )
+        assert isinstance(edit_output, str)
+        updated_item = store.get(("filesystem",), "/journal.txt")
+        assert updated_item is not None
+        assert "Updated journal" in "\n".join(updated_item.value["content"])
+
+    def test_long_term_tools_require_store(self) -> None:
+        middleware = FilesystemMiddleware(long_term_memory=True)
+        ls_tool = next(tool for tool in middleware.tools if tool.name == "ls")
+        _ensure_tool_schema(ls_tool)
+        state = _make_state()
+        with pytest.raises(ValueError):
+            ls_tool.invoke({"runtime": _make_runtime(state)})
+
+    def test_write_file_requires_tool_call_id(self) -> None:
+        middleware = FilesystemMiddleware(long_term_memory=False)
+        write_tool = next(tool for tool in middleware.tools if tool.name == "write_file")
+        _ensure_tool_schema(write_tool)
+        state = _make_state()
+        with pytest.raises(ValueError):
+            write_tool.invoke(
+                {
+                    "file_path": "/notes.txt",
+                    "content": "Missing call id",
+                    "runtime": _make_runtime(state, tool_call_id=None),
+                }
+            )
+
+    def test_read_file_missing_local_file_returns_error(self) -> None:
+        middleware = FilesystemMiddleware(long_term_memory=False)
+        read_tool = next(tool for tool in middleware.tools if tool.name == "read_file")
+        _ensure_tool_schema(read_tool)
+        state = _make_state()
+        result = read_tool.invoke({"file_path": "/unknown.txt", "runtime": _make_runtime(state)})
+        assert result == "File '/unknown.txt' not found"
+
+    def test_write_file_blocks_overwrite(self) -> None:
+        middleware = FilesystemMiddleware(long_term_memory=False)
+        write_tool = next(tool for tool in middleware.tools if tool.name == "write_file")
+        _ensure_tool_schema(write_tool)
+        state = _make_state(files={"/notes.txt": _file_data("Keep me")})
+        runtime = _make_runtime(state, tool_call_id="write-dup")
+        error = write_tool.invoke({"file_path": "/notes.txt", "content": "New", "runtime": runtime})
+        assert isinstance(error, str)
+        assert "already exists" in error
 
 
 @pytest.mark.requires("langchain_openai")

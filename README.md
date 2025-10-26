@@ -211,6 +211,91 @@ The pipeline consists of:
 
 Every agent interaction is checkpointed. Plans, notes, and data artifacts are stored via the LangGraph checkpoint saver so you can replay, inspect, and resume long-running sessions.
 
+### Workflow Schemas
+
+The diagrams below mirror the visual walkthrough in `docs/workflow_architecture.md` and are included here for quick reference.
+
+```mermaid
+flowchart LR
+   Start([User Request])
+   Coordinator[Coordinator Node\nChat intake & routing]
+   Background{Enable background\ninvestigation?}
+   Investigator[Background Investigator\nWeb search & crawl]
+   Planner[Planner Node\nTrustCall plan builder]
+   Iteration{Plan accepted?}
+   Maxed{Max iterations reached?}
+   ResearchTeam[Research Team Hub\nStep dispatcher]
+   Researcher[Researcher Node\nDeep Agent executor]
+   Coder[Coder Node\nPython & data tooling]
+   Reporter[Reporter Node\nReport & media synthesis]
+   End([Final Deliverables])
+
+   Start --> Coordinator
+   Coordinator --> Background
+   Background -->|Yes| Investigator
+   Background -->|No| Planner
+   Investigator --> Planner
+   Planner --> Iteration
+   Iteration -->|Needs edits| Planner
+   Iteration -->|Accepted| ResearchTeam
+   Planner --> Maxed
+   Maxed -->|Yes| Reporter
+   Maxed -->|No| ResearchTeam
+   ResearchTeam -->|Research step| Researcher
+   ResearchTeam -->|Processing step| Coder
+   Researcher --> ResearchTeam
+   Coder --> ResearchTeam
+   ResearchTeam -->|Plan complete| Reporter
+   Reporter --> End
+```
+
+```mermaid
+flowchart TB
+   Entry[Pending plan steps\nfrom Research Team]
+   Chunk[Chunk steps in pairs\ntwo at a time]
+   Brief[Compose execution brief\nuser query, step summary, resources]
+   Timer[[Research Timer Middleware\nLangChain middleware]]
+   Orchestrator[LangGraph Deep Agent\nrecursion limit 1000]
+   subgraph SubAgents[Specialist Sub-Agents]
+      Research[Research agent\nweb & MCP tooling]
+      Critique[Critique agent\nreport redlining]
+      Strategist[Query strategist\nprompt refinement]
+      Synthesizer[Insight synthesizer\nevidence scoring]
+      Architect[Exploration architect\nfollow-up design]
+      Auditor[Evidence auditor\ncitation checks]
+   end
+   Tools[(Search, Crawl, RAG,\nPython REPL, MCP servers)]
+   Result[Capture pair response\nand update step status]
+   Aggregator[Accumulate execution results\nfor every pair]
+   Synthesis[Invoke reporter LLM\nfor final synthesis]
+   Update[Write observations, reports,\nand plan step metadata]
+   Return[Return to Research Team node]
+
+   Entry --> Chunk --> Brief
+   Brief --> Timer --> Orchestrator
+   Orchestrator --> SubAgents
+   SubAgents --> Orchestrator
+   Orchestrator --> Tools
+   Tools --> Orchestrator
+   Orchestrator --> Result --> Aggregator
+   Aggregator -->|More pairs pending| Chunk
+   Aggregator -->|All pairs complete| Synthesis --> Update --> Return
+```
+
+### Middleware Stack
+
+Morgana relies on a layered middleware pipeline inspired by the deep-dive in `docs/linkedin_post.md`:
+
+- **FilesystemMiddleware (`src/agents/deep_agents/middleware/filesystem.py`)** – exposes `ls`, `read_file`, `write_file`, and `edit_file` tools with optional long-term storage so agents can persist and revisit artifacts throughout an investigation.
+- **SubAgentMiddleware (`src/agents/deep_agents/middleware/subagents.py`)** – spins up the specialist crew (research, critique, strategist, synthesizer, architect, auditor) and injects adaptive summarization guards for each sub-agent.
+- **AdaptiveSummarizationMiddleware (`src/agents/deep_agents/middleware/summarization.py`)** – enforces token budgets, rebalances history, and compresses transcripts only when the context window is truly at risk.
+- **ResearchTimerMiddleware (`src/agents/deep_agents/middleware/timer.py`)** – keeps the deep agent accountable with time-boxed nudges and final wrap-up messages when steps linger.
+- **PatchToolCallsMiddleware (`src/agents/deep_agents/middleware/patch_tool_calls.py`)** – repairs out-of-band tool call responses so downstream reducers always see well-formed tool events.
+- **TodoListMiddleware and HumanInTheLoopMiddleware** – manage structured TODO artifacts and enable review/approval checkpoints before the system commits to a plan.
+- **Prompt caching & tracing layers** – Anthropic prompt caching (when available) and LangGraph checkpointing round out observability so every run stays debuggable.
+
+Each middleware can be composed or extended per agent; see `src/agents/deep_agents/graph.py` for the exact stack assembled for the researcher and its sub-agents.
+
 ## Text-to-Speech Integration
 
 Morgana ships with Volcengine-based text-to-speech so reports can be turned into audio summaries.
