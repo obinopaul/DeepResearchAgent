@@ -21,7 +21,7 @@ This project is inspired by the excellent [DeerFlow](https://github.com/bytedanc
 
 ### Video
 
-<https://github.com/user-attachments/assets/f3786598-1f2a-4d07-919e-8b99dfa1de3e>
+<https://github.com/user-attachments/assets/f9527788-1e08-44f7-a032-c3587fc6200a>
 
 The demo covers:
 

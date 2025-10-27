@@ -1,8 +1,8 @@
 from langchain.agents.middleware import AgentMiddleware, AgentState
-from langchain.tools import ToolRuntime
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import tool
 from langgraph.types import Command
+from src.agents.agents.tools.tool_node import ToolRuntime
 
 
 def assert_all_deepagent_qualities(agent):

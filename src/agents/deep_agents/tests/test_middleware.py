@@ -1,16 +1,17 @@
+import importlib
 import sys
 from typing import Any
 
 import pytest
 
 try:
-    from langchain.agents import create_agent
+    # from langchain.agents import create_agent
+    from src.agents.agents import create_agent
 except Exception as exc:  # noqa: BLE001 - broad to catch pydantic evaluation errors on py3.14
     create_agent = None  # type: ignore[assignment]
     _LANGCHAIN_IMPORT_ERROR = exc
 else:
     _LANGCHAIN_IMPORT_ERROR = None
-from src.agents.agents.tools.tool_node import ToolRuntime
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -19,7 +20,9 @@ from langchain_core.messages import (
     ToolCall,
     ToolMessage,
 )
+from langchain_core.tools import BaseTool
 from langgraph.graph.message import add_messages
+from langgraph.managed import RemainingSteps
 from langgraph.store.memory import InMemoryStore
 from langgraph.types import Command
 
@@ -37,6 +40,7 @@ from src.agents.deep_agents.middleware.subagents import (
     TASK_TOOL_DESCRIPTION,
     SubAgentMiddleware,
 )
+from src.agents.agents.tools.tool_node import ToolRuntime
 from src.agents.agents.utils.runtime import Runtime
 from src.agents.deep_agents.middleware.timer import ResearchTimerMiddleware
 
@@ -247,15 +251,21 @@ def _ensure_tool_schema(tool: BaseTool) -> None:
     rebuild = getattr(args_schema, "model_rebuild", None)
     if callable(rebuild):
         module_names = {
-            name for name in (tool.__module__, getattr(args_schema, "__module__", None), "src.agents.agents.middleware.types") if name
+            name
+            for name in (tool.__module__, getattr(args_schema, "__module__", None), "src.agents.agents.middleware.types")
+            if name
         }
         namespace: dict[str, Any] = {}
         for module_name in module_names:
-            module = sys.modules.get(module_name)
+            try:
+                module = importlib.import_module(module_name)
+            except Exception:  # noqa: BLE001 - best-effort loading for schema rebuild
+                module = sys.modules.get(module_name)
             if module is not None:
                 namespace.update(vars(module))
         namespace.setdefault("BaseMessage", BaseMessage)
         namespace.setdefault("add_messages", add_messages)
+        namespace.setdefault("RemainingSteps", RemainingSteps)
         rebuild(_types_namespace=namespace)
 
 

@@ -1,17 +1,27 @@
 """Middleware for providing filesystem tools to an agent."""
 # ruff: noqa: E501
 
+import importlib
 import logging
+import os
+import sys
 from collections.abc import Awaitable, Callable, Sequence
-from typing import TYPE_CHECKING, Annotated, Any
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, Annotated, Any, Literal
 from typing_extensions import NotRequired
 
 if TYPE_CHECKING:
     from langgraph.runtime import Runtime
 
-import os
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Literal
+from langchain_core.messages import BaseMessage, ToolMessage
+from langchain_core.tools import BaseTool, tool, InjectedToolArg
+from langgraph.graph.message import add_messages
+from langgraph.managed import RemainingSteps
+from langgraph.config import get_config
+from langgraph.runtime import Runtime
+from langgraph.store.base import BaseStore, Item
+from langgraph.types import Command
+from typing_extensions import TypedDict
 
 from src.agents.agents.middleware.types import (
     AgentMiddleware,
@@ -19,15 +29,7 @@ from src.agents.agents.middleware.types import (
     ModelRequest,
     ModelResponse,
 )
-from src.agents.agents.tools.tool_node import ToolRuntime
-from src.agents.agents.tools.tool_node import ToolCallRequest
-from langchain_core.messages import ToolMessage
-from langchain_core.tools import BaseTool, tool, InjectedToolArg
-from langgraph.config import get_config
-from langgraph.runtime import Runtime
-from langgraph.store.base import BaseStore, Item
-from langgraph.types import Command
-from typing_extensions import TypedDict
+from src.agents.agents.tools.tool_node import ToolCallRequest, ToolRuntime
 
 
 logger = logging.getLogger(__name__)
@@ -51,6 +53,35 @@ class FileData(TypedDict):
 
     modified_at: str
     """ISO 8601 timestamp of last modification."""
+
+def _ensure_tool_schema(tool: BaseTool) -> None:
+    """Populate forward references on tool schemas for Python 3.14."""
+    args_schema = getattr(tool, "args_schema", None)
+    module_names = {
+        name
+        for name in (tool.__module__, getattr(args_schema, "__module__", None), "src.agents.agents.middleware.types")
+        if name
+    }
+    namespace: dict[str, Any] = {}
+    for module_name in module_names:
+        try:
+            module = importlib.import_module(module_name)
+        except Exception:  # noqa: BLE001 - best effort reconstruction for forward refs
+            module = sys.modules.get(module_name)
+        if module is not None:
+            namespace.update(vars(module))
+    namespace.setdefault("BaseMessage", BaseMessage)
+    namespace.setdefault("add_messages", add_messages)
+    namespace.setdefault("RemainingSteps", RemainingSteps)
+
+    rebuild_tool = getattr(tool, "model_rebuild", None)
+    if callable(rebuild_tool):
+        rebuild_tool(_types_namespace=namespace)
+
+    args_schema = getattr(tool, "args_schema", None)
+    rebuild_args = getattr(args_schema, "model_rebuild", None)
+    if callable(rebuild_args):
+        rebuild_args(_types_namespace=namespace)
 
 
 def _file_data_reducer(left: dict[str, FileData] | None, right: dict[str, FileData | None]) -> dict[str, FileData]:
@@ -923,6 +954,7 @@ def _get_filesystem_tools(custom_tool_descriptions: dict[str, str] | None = None
     tools = []
     for tool_name, tool_generator in TOOL_GENERATORS.items():
         tool = tool_generator(custom_tool_descriptions.get(tool_name), long_term_memory=long_term_memory)
+        _ensure_tool_schema(tool)
         tools.append(tool)
     return tools
 
