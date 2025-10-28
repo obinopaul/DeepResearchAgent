@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { PythonOutlined } from "@ant-design/icons";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { LRUCache } from "lru-cache";
 import { CheckCircle2, ChevronDown, Circle, Loader2 } from "lucide-react";
 import { BookOpenText, FileText, Search } from "lucide-react";
@@ -35,6 +35,7 @@ import {
   type TodoStatus,
 } from "~/core/todos";
 import { parseJSON } from "~/core/utils";
+import { usePageVisibility } from "~/hooks/use-page-visibility";
 import { cn } from "~/lib/utils";
 
 const MAX_ANIMATED_ACTIVITY_ITEMS = 10;
@@ -86,6 +87,9 @@ export function ResearchActivitiesBlock({
     ),
   );
   const [isAtBottom, setIsAtBottom] = useState(true);
+  const prefersReducedMotion = useReducedMotion();
+  const isPageVisible = usePageVisibility();
+  const allowAnimations = isPageVisible && !prefersReducedMotion;
 
   useEffect(() => {
     setIsAtBottom(true);
@@ -123,8 +127,8 @@ export function ResearchActivitiesBlock({
           increaseViewportBy={{ top: 400, bottom: 600 }}
           components={virtualComponents}
           itemContent={(index, activityId) => {
-            const shouldAnimate = index < MAX_ANIMATED_ACTIVITY_ITEMS;
-            const animationDelay = shouldAnimate
+            const shouldAnimateItem = allowAnimations && index < MAX_ANIMATED_ACTIVITY_ITEMS;
+            const animationDelay = shouldAnimateItem
               ? Math.min(index * ACTIVITY_ANIMATION_DELAY, 0.5)
               : 0;
             const isLast = index === timelineActivityIds.length - 1;
@@ -133,18 +137,18 @@ export function ResearchActivitiesBlock({
               <motion.div
                 className="mt-10"
                 style={{
-                  transition: shouldAnimate ? "all 0.3s ease-out" : "none",
+                  transition: shouldAnimateItem ? "all 0.3s ease-out" : undefined,
                 }}
-                initial={shouldAnimate ? { opacity: 0, y: 24 } : { opacity: 1, y: 0 }}
+                initial={shouldAnimateItem ? { opacity: 0, y: 24 } : { opacity: 1, y: 0 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={
-                  shouldAnimate
+                  shouldAnimateItem
                     ? {
                         duration: 0.3,
                         delay: animationDelay,
                         ease: "easeOut",
                       }
-                    : undefined
+                    : { duration: 0 }
                 }
               >
                 <ActivityMessage messageId={activityId} />
@@ -1577,6 +1581,9 @@ function normalizeToolArgs(args: ToolCallRuntime["args"]): NormalizedToolArgs {
 function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
   const t = useTranslations("chat.research");
   const searching = toolCall.result === undefined;
+  const prefersReducedMotion = useReducedMotion();
+  const isPageVisible = usePageVisibility();
+  const allowAnimations = isPageVisible && !prefersReducedMotion;
   const normalizedArgs = useMemo(
     () => normalizeToolArgs(toolCall.args),
     [toolCall.args],
@@ -1683,21 +1690,21 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
             {pageResults
               .slice(0, MAX_PAGE_RESULTS)
               .map((searchResult, i) => {
-                const shouldAnimate = i < MAX_PAGE_ANIMATIONS;
+                const shouldAnimateResult = allowAnimations && i < MAX_PAGE_ANIMATIONS;
                 return (
                   <motion.li
                     key={`search-result-${i}`}
                     className="text-muted-foreground bg-accent flex max-w-40 gap-2 rounded-md px-2 py-1 text-sm"
-                    initial={shouldAnimate ? { opacity: 0, y: 10 } : { opacity: 1, y: 0 }}
+                    initial={shouldAnimateResult ? { opacity: 0, y: 10 } : { opacity: 1, y: 0 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={
-                      shouldAnimate
+                      shouldAnimateResult
                         ? {
                             duration: 0.15,
                             delay: Math.min(i * 0.05, 0.3),
                             ease: "easeOut",
                           }
-                        : undefined
+                        : { duration: 0 }
                     }
                   >
                     <FavIcon
@@ -1714,7 +1721,7 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
             {imageResults
               .slice(0, MAX_IMAGE_RESULTS)
               .map((searchResult, i) => {
-                const shouldAnimate = i < MAX_IMAGE_ANIMATIONS;
+                const shouldAnimate = allowAnimations && i < MAX_IMAGE_ANIMATIONS;
                 return (
                   <motion.li
                     key={`search-result-image-${i}`}
@@ -1727,7 +1734,7 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
                             delay: Math.min(i * 0.05, 0.2),
                             ease: "easeOut",
                           }
-                        : undefined
+                        : { duration: 0 }
                     }
                   >
                     <a
@@ -1755,6 +1762,9 @@ function WebSearchToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
 
 function CrawlToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
   const t = useTranslations("chat.research");
+  const prefersReducedMotion = useReducedMotion();
+  const isPageVisible = usePageVisibility();
+  const allowAnimations = isPageVisible && !prefersReducedMotion;
   const normalizedArgs = useMemo(
     () => normalizeToolArgs(toolCall.args),
     [toolCall.args],
@@ -1790,12 +1800,16 @@ function CrawlToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
       <ul className="mt-2 flex flex-wrap gap-4">
         <motion.li
           className="text-muted-foreground bg-accent flex h-40 w-40 gap-2 rounded-md px-2 py-1 text-sm"
-          initial={{ opacity: 0, y: 10 }}
+          initial={allowAnimations ? { opacity: 0, y: 10 } : { opacity: 1, y: 0 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{
-            duration: 0.15,
-            ease: "easeOut",
-          }}
+          transition={
+            allowAnimations
+              ? {
+                  duration: 0.15,
+                  ease: "easeOut",
+                }
+              : { duration: 0 }
+          }
         >
           <FavIcon className="mt-1" url={url} title={title} />
           <a
@@ -1816,6 +1830,9 @@ function RetrieverToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
   const searching = useMemo(() => {
     return toolCall.result === undefined;
   }, [toolCall.result]);
+  const prefersReducedMotion = useReducedMotion();
+  const isPageVisible = usePageVisibility();
+  const allowAnimations = isPageVisible && !prefersReducedMotion;
   const normalizedArgs = useMemo(
     () => normalizeToolArgs(toolCall.args),
     [toolCall.args],
@@ -1862,7 +1879,7 @@ function RetrieverToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
                 </li>
               ))}
             {documents?.map((doc, i) => {
-              const shouldAnimate = i < MAX_DOCUMENT_ANIMATIONS;
+              const shouldAnimate = allowAnimations && i < MAX_DOCUMENT_ANIMATIONS;
               return (
                 <motion.li
                   key={`search-result-${i}`}
@@ -1876,7 +1893,7 @@ function RetrieverToolCall({ toolCall }: { toolCall: ToolCallRuntime }) {
                           delay: Math.min(i * 0.05, 0.2),
                           ease: "easeOut",
                         }
-                      : undefined
+                      : { duration: 0 }
                   }
                 >
                   <FileText size={32} />

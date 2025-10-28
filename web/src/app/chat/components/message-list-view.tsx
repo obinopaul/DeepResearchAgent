@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { LoadingOutlined } from "@ant-design/icons";
-import { motion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import {
   Download,
   Headphones,
@@ -47,6 +47,8 @@ import {
 } from "~/core/store";
 import { useInterruptMessageFor } from "~/core/store";
 import { parseJSON } from "~/core/utils";
+import { debugLog } from "~/lib/debug";
+import { usePageVisibility } from "~/hooks/use-page-visibility";
 import { cn } from "~/lib/utils";
 
 export function MessageListView({
@@ -75,6 +77,9 @@ export function MessageListView({
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [viewportReady, setViewportReady] = useState(false);
+  const prefersReducedMotion = useReducedMotion();
+  const isPageVisible = usePageVisibility();
+  const shouldAnimate = isPageVisible && !prefersReducedMotion;
 
   const footerComponent = useMemo(() => {
     const shouldShowLoader = responding && (noOngoingResearch || !ongoingResearchIsOpen);
@@ -130,7 +135,7 @@ export function MessageListView({
           style={{ height: "100%", width: "100%" }}
           data={messageIds}
           computeItemKey={(_, messageId) => messageId}
-          followOutput={isAtBottom ? "smooth" : false}
+          followOutput={isPageVisible && isAtBottom ? "smooth" : false}
           atBottomStateChange={setIsAtBottom}
           increaseViewportBy={{ top: 400, bottom: 600 }}
           components={{ Footer: footerComponent }}
@@ -142,6 +147,7 @@ export function MessageListView({
               onFeedback={onFeedback}
               onSendMessage={onSendMessage}
               onToggleResearch={handleToggleResearch}
+              shouldAnimate={shouldAnimate}
             />
           )}
         />
@@ -161,6 +167,7 @@ function MessageListItem({
   onFeedback,
   onSendMessage,
   onToggleResearch,
+  shouldAnimate = true,
 }: {
   messageId: string;
   waitForFeedback?: boolean;
@@ -171,6 +178,7 @@ function MessageListItem({
     options?: { interruptFeedback?: string },
   ) => void;
   onToggleResearch?: () => void;
+  shouldAnimate?: boolean;
 }) {
   const message = useMessage(messageId);
   const researchIds = useStore((state) => state.researchIds);
@@ -246,13 +254,17 @@ function MessageListItem({
           <motion.div
             className="mt-10"
             key={messageId}
-            initial={{ opacity: 0, y: 24 }}
+            initial={shouldAnimate ? { opacity: 0, y: 24 } : { opacity: 1, y: 0 }}
             animate={{ opacity: 1, y: 0 }}
-            style={{ transition: "all 0.2s ease-out" }}
-            transition={{
-              duration: 0.2,
-              ease: "easeOut",
-            }}
+            style={shouldAnimate ? { transition: "all 0.2s ease-out" } : undefined}
+            transition={
+              shouldAnimate
+                ? {
+                    duration: 0.2,
+                    ease: "easeOut",
+                  }
+                : { duration: 0 }
+            }
           >
             {content}
           </motion.div>
@@ -493,7 +505,7 @@ function PlanCard({
 
   // Log render state including interrupt linkage
   try {
-    console.debug(
+    debugLog(
       "[PlanCard] state",
       {
         id: message.id,

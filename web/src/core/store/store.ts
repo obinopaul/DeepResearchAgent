@@ -11,10 +11,58 @@ import type { Message, Resource } from "../messages";
 import { mergeMessage } from "../messages";
 import { extractTodosFromMessage, type TodoItem } from "../todos";
 import { parseJSON } from "../utils";
+import { debugLog } from "~/lib/debug";
 
 import { getChatStreamSettings } from "./settings-store";
 
 const THREAD_ID = nanoid();
+
+const hiddenUpdateBuffer = new Map<string, Message>();
+let visibilityListenerRegistered = false;
+
+function shouldBufferHiddenUpdates() {
+  if (typeof document === "undefined") {
+    return false;
+  }
+  return document.hidden;
+}
+
+function cloneMessageForBuffer(message: Message): Message {
+  return {
+    ...message,
+    contentChunks: message.contentChunks ? [...message.contentChunks] : [],
+    reasoningContentChunks: message.reasoningContentChunks
+      ? [...message.reasoningContentChunks]
+      : [],
+    toolCalls: message.toolCalls
+      ? message.toolCalls.map((toolCall) => ({ ...toolCall }))
+      : undefined,
+    options: message.options ? message.options.map((option) => ({ ...option })) : undefined,
+  };
+}
+
+function flushHiddenUpdates() {
+  if (hiddenUpdateBuffer.size === 0) {
+    return;
+  }
+  const buffered = Array.from(hiddenUpdateBuffer.values()).map((message) =>
+    cloneMessageForBuffer(message),
+  );
+  hiddenUpdateBuffer.clear();
+  useStore.getState().updateMessages(buffered);
+}
+
+function ensureVisibilityListener() {
+  if (visibilityListenerRegistered || typeof document === "undefined") {
+    return;
+  }
+  visibilityListenerRegistered = true;
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      flushHiddenUpdates();
+    }
+  });
+}
 
 export type Source = {
   title: string;
@@ -178,7 +226,7 @@ export async function sendMessage(
     for await (const event of stream) {
       const { type, data } = event;
       try {
-        console.debug("[store.sendMessage] received", type, data?.agent, data?.id);
+        debugLog("[store.sendMessage] received", type, data?.agent, data?.id);
       } catch {}
       messageId = data.id;
       // If we receive an interrupt event, ensure the latest planner message
@@ -236,7 +284,7 @@ export async function sendMessage(
           updateMessage(message);
         }
         try {
-          console.debug(
+          debugLog(
             "[store.sendMessage] updated",
             message.id,
             message.agent,
@@ -263,7 +311,7 @@ export async function sendMessage(
     useStore.getState().setOngoingResearch(null);
   } finally {
     try {
-      console.debug("[store.sendMessage] stream finished");
+      debugLog("[store.sendMessage] stream finished");
     } catch {}
     setResponding(false);
   }
@@ -338,6 +386,12 @@ function updateMessage(message: Message) {
   ) {
     useStore.getState().setOngoingResearch(null);
   }
+  if (shouldBufferHiddenUpdates()) {
+    ensureVisibilityListener();
+    hiddenUpdateBuffer.set(message.id, cloneMessageForBuffer(message));
+    return;
+  }
+  flushHiddenUpdates();
   useStore.getState().updateMessage(message);
   ingestTodosFromMessage(message);
 }

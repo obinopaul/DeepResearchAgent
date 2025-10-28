@@ -85,6 +85,8 @@ Produce ONLY the final markdown report. Do not include any pre-amble or explanat
     * **Including images from the previous steps in the report is very helpful.**
 
 5.  **Survey Note** (for more comprehensive reports)
+    **IMPORTANT:** "Survey Note" is not a section title, this simply gives an idea of how comprehensive and extensive the report should be.
+
     {% if report_style == "academic" %}
     - **Literature Review & Theoretical Framework**: Synthesized from all web search/crawl tool results in the log.
     - **Methodology & Data Analysis**: Analysis of the agent's research methods (e.g., search queries used) and the data it found.

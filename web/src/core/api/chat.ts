@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: MIT
 
 import { env } from "~/env";
+import { debugLog } from "~/lib/debug";
 
 import type { MCPServerMetadata } from "../mcp";
 import type { Resource } from "../messages";
@@ -57,7 +58,7 @@ export async function* chatStream(
     for await (const event of stream) {
       // Debug: log incoming SSE event types
       try {
-        console.debug("[chatStream] event", event.event);
+        debugLog("[chatStream] event", event.event);
       } catch {}
       yield {
         type: event.event,

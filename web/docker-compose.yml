@@ -5,6 +5,7 @@ services:
       dockerfile: Dockerfile
       args:
         NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL}
+        NEXT_PUBLIC_DEBUG_STREAM: ${NEXT_PUBLIC_DEBUG_STREAM:-false}
     image: morgana-web
     ports:
       - "3000:3000"
