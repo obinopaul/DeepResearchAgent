@@ -35,10 +35,10 @@ from src.config.agents import LLMType
 from src.llms.providers.dashscope import ChatDashscope
 
 DEFAULT_TOKEN_LIMITS: dict[str, int] = {
-    "basic": 8192,
+    "basic": 128000,
     "reasoning": 128000,
-    "vision": 8192,
-    "code": 8192,
+    "vision": 128000,
+    "code": 128000,
     "deepagent": 200000,
     "deepagent_openai": 128000,
     "deepagent_deepseek": 131072,
@@ -381,9 +381,9 @@ def get_llm_token_limit_by_type(llm_type: str) -> int:
     default_limit = DEFAULT_TOKEN_LIMITS.get(llm_type)
     if default_limit is None:
         logger.warning(
-            "No token limit configured for llm_type '%s'; defaulting to 8192 tokens.", llm_type
+            "No token limit configured for llm_type '%s'; defaulting to 128000 tokens.", llm_type
         )
-        return 8192
+        return 128000
     return default_limit
 
 

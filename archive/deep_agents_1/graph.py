@@ -1,14 +1,10 @@
 """Deepagents come with planning, filesystem, and subagents."""
 
-from collections.abc import Callable, Sequence
-from typing import Any
+from __future__ import annotations
 
-from langchain.agents import create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware, InterruptOnConfig, TodoListMiddleware
-from langchain.agents.middleware.types import AgentMiddleware
-from langchain.agents.structured_output import ResponseFormat
-from langchain_anthropic import ChatAnthropic
-from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+from collections.abc import Callable, Sequence
+from typing import TYPE_CHECKING, Any
+
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langgraph.cache.base import BaseCache
@@ -16,14 +12,31 @@ from langgraph.graph.state import CompiledStateGraph
 from langgraph.store.base import BaseStore
 from langgraph.types import Checkpointer
 
-from src.agents.deep_agents.backends.protocol import BackendProtocol, BackendFactory
-from src.agents.deep_agents.middleware.filesystem import FilesystemMiddleware
-from src.agents.deep_agents.middleware.patch_tool_calls import PatchToolCallsMiddleware
-from src.agents.deep_agents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
-from src.agents.deep_agents.middleware.summarization import (
+from src.agents.deep_agents.middleware import (
     AdaptiveSummarizationMiddleware,
+    FilesystemMiddleware,
     resolve_summary_parameters,
 )
+from src.agents.deep_agents.middleware.patch_tool_calls import PatchToolCallsMiddleware
+from src.agents.deep_agents.middleware.subagents import CompiledSubAgent, SubAgent, SubAgentMiddleware
+
+if TYPE_CHECKING:
+    from src.agents.agents.middleware import HumanInTheLoopMiddleware, InterruptOnConfig, TodoListMiddleware
+    from src.agents.agents.middleware.types import AgentMiddleware
+    from src.agents.agents.structured_output import ResponseFormat
+
+_anthropic_import_error: Exception | None = None
+
+try:
+    from langchain_anthropic import ChatAnthropic
+except ImportError as err:  # pragma: no cover - handled at runtime
+    ChatAnthropic = None  # type: ignore[assignment]
+    _anthropic_import_error = err
+
+try:
+    from langchain_anthropic.middleware import AnthropicPromptCachingMiddleware
+except ImportError:  # pragma: no cover - handled at runtime
+    AnthropicPromptCachingMiddleware = None  # type: ignore[assignment]
 
 BASE_AGENT_PROMPT = "In order to complete the objective that the user asks of you, you have access to a number of standard tools."
 
@@ -34,6 +47,15 @@ def get_default_model() -> ChatAnthropic:
     Returns:
         ChatAnthropic instance configured with Claude Sonnet 4.
     """
+    if ChatAnthropic is None:
+        message = (
+            "langchain-anthropic is required to use the default deep agent model. "
+            "Install it with `pip install langchain-anthropic` or pass a model explicitly."
+        )
+        if _anthropic_import_error is not None:
+            raise ImportError(message) from _anthropic_import_error
+        raise ImportError(message)
+
     return ChatAnthropic(
         model_name="claude-sonnet-4-5-20250929",
         max_tokens=20000,
@@ -51,7 +73,7 @@ def create_deep_agent(
     context_schema: type[Any] | None = None,
     checkpointer: Checkpointer | None = None,
     store: BaseStore | None = None,
-    backend: BackendProtocol | BackendFactory | None = None,
+    use_longterm_memory: bool = False,
     interrupt_on: dict[str, bool | InterruptOnConfig] | None = None,
     debug: bool = False,
     name: str | None = None,
@@ -60,15 +82,15 @@ def create_deep_agent(
     """Create a deep agent.
 
     This agent will by default have access to a tool to write todos (write_todos),
-    six file editing tools: write_file, ls, read_file, edit_file, glob_search, grep_search,
-    and a tool to call subagents.
+    four file editing tools: write_file, ls, read_file, edit_file, and a tool to call
+    subagents.
 
     Args:
-        model: The model to use. Defaults to Claude Sonnet 4.
         tools: The tools the agent should have access to.
         system_prompt: The additional instructions the agent should have. Will go in
             the system prompt.
         middleware: Additional middleware to apply after standard middleware.
+        model: The model to use.
         subagents: The subagents to use. Each subagent should be a dictionary with the
             following keys:
                 - `name`
@@ -82,9 +104,9 @@ def create_deep_agent(
         response_format: A structured output response format to use for the agent.
         context_schema: The schema of the deep agent.
         checkpointer: Optional checkpointer for persisting agent state between runs.
-        store: Optional store for persistent storage (required if backend uses StoreBackend).
-        backend: Optional backend for file storage. Pass either a Backend instance or a
-            callable factory like `lambda rt: StateBackend(rt)`.
+        store: Optional store for persisting longterm memories.
+        use_longterm_memory: Whether to use longterm memory - you must provide a store
+            in order to use longterm memory.
         interrupt_on: Optional Dict[str, bool | InterruptOnConfig] mapping tool names to
             interrupt configs.
         debug: Whether to enable debug mode. Passed through to create_agent.
@@ -94,51 +116,70 @@ def create_deep_agent(
     Returns:
         A configured deep agent.
     """
+    from src.agents.agents import create_agent  # Local import avoids circular dependency.
+    from src.agents.agents.middleware import HumanInTheLoopMiddleware, TodoListMiddleware
+
     if model is None:
         model = get_default_model()
 
-    _, summary_budget, messages_to_keep = resolve_summary_parameters(
-        model,
-        requested_summary_budget=90000,
+    _, summary_budget, messages_to_keep = resolve_summary_parameters(model)
+    summary_middleware_main = AdaptiveSummarizationMiddleware(
+        model=model,
+        max_tokens_before_summary=summary_budget,
+        messages_to_keep=messages_to_keep,
     )
-
-    subagent_summary_middleware = AdaptiveSummarizationMiddleware(
+    summary_middleware_placeholder = AdaptiveSummarizationMiddleware(
         model=model,
         max_tokens_before_summary=summary_budget,
         messages_to_keep=messages_to_keep,
     )
 
-    main_summary_middleware = AdaptiveSummarizationMiddleware(
-        model=model,
-        max_tokens_before_summary=summary_budget,
-        messages_to_keep=messages_to_keep,
-    )
+    subagent_base_middleware = [
+        TodoListMiddleware(),
+        FilesystemMiddleware(
+            long_term_memory=use_longterm_memory,
+        ),
+        summary_middleware_placeholder,
+        *(
+            [AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")]
+            if AnthropicPromptCachingMiddleware is not None
+            else []
+        ),
+        PatchToolCallsMiddleware(),
+    ]
+
+    from src.agents.deep_agents.middleware.timer import ResearchTimerMiddleware
+    if middleware is not None:
+        for m in middleware:
+            if isinstance(m, ResearchTimerMiddleware):
+                subagent_base_middleware.append(m)
 
     deepagent_middleware = [
         TodoListMiddleware(),
-        FilesystemMiddleware(backend=backend),
+        FilesystemMiddleware(
+            long_term_memory=use_longterm_memory,
+        ),
         SubAgentMiddleware(
             default_model=model,
             default_tools=tools,
             subagents=subagents if subagents is not None else [],
-            default_middleware=[
-                TodoListMiddleware(),
-                FilesystemMiddleware(backend=backend),
-                subagent_summary_middleware,
-                AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
-                PatchToolCallsMiddleware(),
-            ],
+            default_middleware=subagent_base_middleware,
             default_interrupt_on=interrupt_on,
             general_purpose_agent=True,
+            summary_budget=summary_budget,
         ),
-        main_summary_middleware,
-        AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore"),
+        summary_middleware_main,
+        *(
+            [AnthropicPromptCachingMiddleware(unsupported_model_behavior="ignore")]
+            if AnthropicPromptCachingMiddleware is not None
+            else []
+        ),
         PatchToolCallsMiddleware(),
     ]
-    if middleware:
-        deepagent_middleware.extend(middleware)
     if interrupt_on is not None:
         deepagent_middleware.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
+    if middleware is not None:
+        deepagent_middleware.extend(middleware)
 
     return create_agent(
         model,

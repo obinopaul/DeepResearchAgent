@@ -7,13 +7,8 @@ from typing import Any
 
 from langchain_core.messages import HumanMessage
 
-from langchain.agents.middleware.types import (
-    AgentMiddleware,
-    AgentState,
-    ModelRequest,
-    ModelResponse,
-)
-from langchain.tools import BaseTool, ToolRuntime
+from src.agents.agents.middleware.types import AgentMiddleware, AgentState
+from src.agents.agents.utils.runtime import Runtime
 
 
 class ResearchTimerMiddleware(AgentMiddleware[AgentState, Any]):
@@ -56,13 +51,10 @@ class ResearchTimerMiddleware(AgentMiddleware[AgentState, Any]):
         )
         # Guard against negative thresholds; warning at time zero is harmless.
         self._warning_deadline = max(min(ratio_threshold, minute_threshold), 0.0)
+        self.name = "ResearchTimerMiddleware"
         self.tools: list[Any] = []
 
-    @property
-    def name(self) -> str:
-        return "ResearchTimerMiddleware"
-
-    def before_model(self, state: AgentState, runtime: ToolRuntime) -> dict[str, Any] | None:  # noqa: ARG002
+    def before_model(self, state: AgentState, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
         now = time.monotonic()
         if self._start_time is None:
             self._start_time = now

@@ -2,14 +2,20 @@
 
 from typing import Any
 
-from langchain.agents.middleware import AgentMiddleware, AgentState
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import RemoveMessage, ToolMessage
+from langgraph.graph.message import REMOVE_ALL_MESSAGES
 from langgraph.runtime import Runtime
-from langgraph.types import Overwrite
+
+from src.agents.agents.middleware.types import AgentMiddleware, AgentState
 
 
 class PatchToolCallsMiddleware(AgentMiddleware):
     """Middleware to patch dangling tool calls in the messages history."""
+
+    def __init__(self) -> None:
+        """Initialize middleware with a descriptive name for runtime introspection."""
+        super().__init__()
+        self.name = "PatchToolCallsMiddleware"
 
     def before_agent(self, state: AgentState, runtime: Runtime[Any]) -> dict[str, Any] | None:  # noqa: ARG002
         """Before the agent runs, handle dangling tool calls from any AIMessage."""
@@ -41,4 +47,4 @@ class PatchToolCallsMiddleware(AgentMiddleware):
                             )
                         )
 
-        return {"messages": Overwrite(patched_messages)}
+        return {"messages": [RemoveMessage(id=REMOVE_ALL_MESSAGES), *patched_messages]}

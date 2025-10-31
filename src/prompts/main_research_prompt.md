@@ -35,6 +35,7 @@ RESEARCH REQUIREMENTS:
 - Maintain a running list of at least 8–10 high-quality sources across different domains (news, official filings, academic papers, market analyses, etc.) before you begin writing.
 - Do not rely on prior knowledge or guesswork—every factual statement must be backed by material gathered in this session.
 - Continue researching until you have accumulated enough vetted evidence to support a long-form, reference-rich report. Only transition to drafting once the evidence base is robust.
+- While a deep research is needed, your research must not be too long, make it detailed and quick.
 
 LONG-FORM REPORT EXPECTATIONS:
 - Target a minimum report length of roughly 1,500–2,000 words (or longer when warranted by the topic).

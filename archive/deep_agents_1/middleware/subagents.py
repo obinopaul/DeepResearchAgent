@@ -1,18 +1,25 @@
 """Middleware for providing subagents to an agent via a `task` tool."""
 
 from collections.abc import Awaitable, Callable, Sequence
-from typing import Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast, Annotated
 from typing_extensions import NotRequired
 
-from langchain.agents import create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware, InterruptOnConfig
-from langchain.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
-from langchain.tools import BaseTool, ToolRuntime
+from src.agents.agents.middleware import HumanInTheLoopMiddleware, InterruptOnConfig
+from src.agents.agents.middleware.summarization import SummarizationMiddleware
+from src.agents.agents.middleware.types import AgentMiddleware, ModelRequest, ModelResponse
+from src.agents.agents.tools.tool_node import ToolRuntime
+from src.agents.deep_agents.middleware.summarization import (
+    AdaptiveSummarizationMiddleware,
+    resolve_summary_parameters,
+)
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.runnables import Runnable
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import BaseTool, InjectedToolArg, StructuredTool
 from langgraph.types import Command
+
+if TYPE_CHECKING:
+    from src.agents.agents import create_agent as _create_agent_fn  # noqa: F401
 
 
 class SubAgent(TypedDict):
@@ -206,43 +213,79 @@ When NOT to use the task tool:
 DEFAULT_GENERAL_PURPOSE_DESCRIPTION = "General-purpose agent for researching complex questions, searching for files and content, and executing multi-step tasks. When you are searching for a keyword or file and are not confident that you will find the right match in the first few tries use this agent to perform the search for you. This agent has access to all tools as the main agent."  # noqa: E501
 
 
+def _prepare_middleware_stack(
+    base: Sequence[AgentMiddleware],
+    *,
+    model: str | BaseChatModel,
+    summary_budget_override: int | None,
+) -> list[AgentMiddleware]:
+    """Ensure each subagent gets an AdaptiveSummarizationMiddleware tuned to its model."""
+    sanitized: list[AgentMiddleware] = []
+    insertion_index: int | None = None
+
+    for middleware in base:
+        if isinstance(middleware, SummarizationMiddleware):
+            if insertion_index is None:
+                insertion_index = len(sanitized)
+            continue
+        sanitized.append(middleware)
+
+    _, summary_budget, messages_to_keep = resolve_summary_parameters(
+        model,
+        requested_summary_budget=summary_budget_override,
+    )
+    sanitized.insert(
+        insertion_index if insertion_index is not None else len(sanitized),
+        AdaptiveSummarizationMiddleware(
+            model=model,
+            max_tokens_before_summary=summary_budget,
+            messages_to_keep=messages_to_keep,
+        ),
+    )
+    return sanitized
+
+
 def _get_subagents(
     *,
     default_model: str | BaseChatModel,
     default_tools: Sequence[BaseTool | Callable | dict[str, Any]],
-    default_middleware: list[AgentMiddleware] | None,
+    default_middleware: list[AgentMiddleware],
     default_interrupt_on: dict[str, bool | InterruptOnConfig] | None,
     subagents: list[SubAgent | CompiledSubAgent],
     general_purpose_agent: bool,
+    summary_budget: int | None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Create subagent instances from specifications.
 
     Args:
         default_model: Default model for subagents that don't specify one.
         default_tools: Default tools for subagents that don't specify tools.
-        default_middleware: Middleware to apply to all subagents. If `None`,
-            no default middleware is applied.
+        default_middleware: Middleware template to apply to all subagents.
         default_interrupt_on: The tool configs to use for the default general-purpose subagent. These
             are also the fallback for any subagents that don't specify their own tool configs.
         subagents: List of agent specifications or pre-compiled agents.
         general_purpose_agent: Whether to include a general-purpose subagent.
+        summary_budget: Optional summary budget override for the general-purpose subagent.
 
     Returns:
         Tuple of (agent_dict, description_list) where agent_dict maps agent names
         to runnable instances and description_list contains formatted descriptions.
     """
-    # Use empty list if None (no default middleware)
-    default_subagent_middleware = default_middleware or []
+    from src.agents.agents import create_agent as _create_agent
 
     agents: dict[str, Any] = {}
     subagent_descriptions = []
 
     # Create general-purpose agent if enabled
     if general_purpose_agent:
-        general_purpose_middleware = [*default_subagent_middleware]
+        general_purpose_middleware = _prepare_middleware_stack(
+            default_middleware,
+            model=default_model,
+            summary_budget_override=summary_budget,
+        )
         if default_interrupt_on:
             general_purpose_middleware.append(HumanInTheLoopMiddleware(interrupt_on=default_interrupt_on))
-        general_purpose_subagent = create_agent(
+        general_purpose_subagent = _create_agent(
             default_model,
             system_prompt=DEFAULT_SUBAGENT_PROMPT,
             tools=default_tools,
@@ -262,17 +305,25 @@ def _get_subagents(
 
         subagent_model = agent_.get("model", default_model)
 
-        _middleware = [*default_subagent_middleware, *agent_["middleware"]] if "middleware" in agent_ else [*default_subagent_middleware]
+        middleware_template = list(default_middleware)
+        _middleware = _prepare_middleware_stack(
+            middleware_template,
+            model=subagent_model,
+            summary_budget_override=agent_.get("summary_budget"),
+        )
+        if "middleware" in agent_:
+            _middleware.extend(agent_["middleware"])
 
         interrupt_on = agent_.get("interrupt_on", default_interrupt_on)
         if interrupt_on:
             _middleware.append(HumanInTheLoopMiddleware(interrupt_on=interrupt_on))
 
-        agents[agent_["name"]] = create_agent(
+        agents[agent_["name"]] = _create_agent(
             subagent_model,
             system_prompt=agent_["system_prompt"],
             tools=_tools,
             middleware=_middleware,
+            checkpointer=False,
         )
     return agents, subagent_descriptions
 
@@ -281,10 +332,11 @@ def _create_task_tool(
     *,
     default_model: str | BaseChatModel,
     default_tools: Sequence[BaseTool | Callable | dict[str, Any]],
-    default_middleware: list[AgentMiddleware] | None,
+    default_middleware: list[AgentMiddleware],
     default_interrupt_on: dict[str, bool | InterruptOnConfig] | None,
     subagents: list[SubAgent | CompiledSubAgent],
     general_purpose_agent: bool,
+    summary_budget: int | None,
     task_description: str | None = None,
 ) -> BaseTool:
     """Create a task tool for invoking subagents.
@@ -297,6 +349,7 @@ def _create_task_tool(
             are also the fallback for any subagents that don't specify their own tool configs.
         subagents: List of subagent specifications.
         general_purpose_agent: Whether to include general-purpose agent.
+        summary_budget: Optional summary budget override for the general-purpose subagent.
         task_description: Custom description for the task tool. If `None`,
             uses default template. Supports `{available_agents}` placeholder.
 
@@ -310,6 +363,7 @@ def _create_task_tool(
         default_interrupt_on=default_interrupt_on,
         subagents=subagents,
         general_purpose_agent=general_purpose_agent,
+        summary_budget=summary_budget,
     )
     subagent_description_str = "\n".join(subagent_descriptions)
 
@@ -318,7 +372,7 @@ def _create_task_tool(
         return Command(
             update={
                 **state_update,
-                "messages": [ToolMessage(result["messages"][-1].text, tool_call_id=tool_call_id)],
+                "messages": [ToolMessage(result["messages"][-1].content, tool_call_id=tool_call_id)],
             }
         )
 
@@ -343,7 +397,7 @@ def _create_task_tool(
     def task(
         description: str,
         subagent_type: str,
-        runtime: ToolRuntime,
+        runtime: Annotated[ToolRuntime, InjectedToolArg()],
     ) -> str | Command:
         subagent, subagent_state = _validate_and_prepare_state(subagent_type, description, runtime)
         result = subagent.invoke(subagent_state)
@@ -355,7 +409,7 @@ def _create_task_tool(
     async def atask(
         description: str,
         subagent_type: str,
-        runtime: ToolRuntime,
+        runtime: Annotated[ToolRuntime, InjectedToolArg()],
     ) -> str | Command:
         subagent, subagent_state = _validate_and_prepare_state(subagent_type, description, runtime)
         result = await subagent.ainvoke(subagent_state)
@@ -400,6 +454,8 @@ class SubAgentMiddleware(AgentMiddleware):
         system_prompt: Full system prompt override. When provided, completely replaces
             the agent's system prompt.
         general_purpose_agent: Whether to include the general-purpose agent. Defaults to `True`.
+        summary_budget: Optional summary budget override (in tokens) for the general-purpose subagent.
+            When provided, also used as the default budget for custom subagents unless they supply one.
         task_description: Custom description for the task tool. If `None`, uses the
             default description template.
 
@@ -443,18 +499,22 @@ class SubAgentMiddleware(AgentMiddleware):
         subagents: list[SubAgent | CompiledSubAgent] | None = None,
         system_prompt: str | None = TASK_SYSTEM_PROMPT,
         general_purpose_agent: bool = True,
+        summary_budget: int | None = None,
         task_description: str | None = None,
     ) -> None:
         """Initialize the SubAgentMiddleware."""
         super().__init__()
+        self.name = "SubAgentMiddleware"
         self.system_prompt = system_prompt
+        middleware_template = list(default_middleware or [])
         task_tool = _create_task_tool(
             default_model=default_model,
             default_tools=default_tools or [],
-            default_middleware=default_middleware,
+            default_middleware=middleware_template,
             default_interrupt_on=default_interrupt_on,
             subagents=subagents or [],
             general_purpose_agent=general_purpose_agent,
+            summary_budget=summary_budget,
             task_description=task_description,
         )
         self.tools = [task_tool]
